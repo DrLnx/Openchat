@@ -1,0 +1,52 @@
+{
+  "name": "openchat",
+  "version": "0.1.0",
+  "description": "Serverless, end-to-end encrypted P2P group chat for the terminal",
+  "type": "module",
+  "bin": {
+    "openchat": "bin/openchat.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.js",
+    "build:web": "node scripts/build-web.js",
+    "dev": "node scripts/build.js --watch",
+    "pretest": "npm run build",
+    "test": "node --import ./scripts/jsx-register.js --test --test-concurrency=1 \"test/**/*.test.js\"",
+    "test:unit": "node --import ./scripts/jsx-register.js --test \"test/unit/*.test.js\"",
+    "record": "node scripts/record-demo.js",
+    "start": "node bin/openchat.js"
+  },
+  "dependencies": {
+    "@noble/ed25519": "^3.2.0",
+    "@noble/hashes": "^2.4.0",
+    "autobase": "^7.28.1",
+    "b4a": "^1.8.1",
+    "bip39": "^3.1.0",
+    "compact-encoding": "^3.3.2",
+    "corestore": "^7.12.2",
+    "hyperbee": "^2.27.3",
+    "hyperblobs": "^2.12.1",
+    "hypercore": "^11.35.2",
+    "hyperdht": "^6.33.2",
+    "hyperswarm": "^4.17.0",
+    "ink": "^7.1.1",
+    "ink-text-input": "^6.0.0",
+    "protomux": "^3.11.0",
+    "react": "^19.2.8",
+    "sodium-native": "^5.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "ink-testing-library": "^4.0.0",
+    "playwright": "^1.62.1"
+  },
+  "license": "MIT"
+}
