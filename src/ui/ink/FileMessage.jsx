@@ -1,9 +1,9 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 
-import { formatBytes } from '../model/format.js'
+import { MARKER } from './theme.js'
 
-const WIDTH = 20
+const WIDTH = 16
 
 /** A block progress bar driven by real blob-fetch progress, not a timer. */
 function Bar ({ progress }) {
@@ -17,40 +17,27 @@ function Bar ({ progress }) {
   )
 }
 
+/**
+ * The state of an attachment, hanging under the message that announced it the
+ * way a tool result does in Claude Code. The filename is already on the line
+ * above, so this says only what happened to it.
+ */
 export function FileMessage ({ message, attachment }) {
-  const size = formatBytes(message.size)
   const status = attachment?.status
 
+  const detail = status === 'downloading'
+    ? <Bar progress={attachment.progress || 0} />
+    : status === 'ready'
+      ? <Text dimColor>{attachment.path ? `saved to ${attachment.path}` : 'received'}</Text>
+      : status === 'failed'
+        ? <Text color="red">failed: {attachment.error}</Text>
+        : status === 'available'
+          ? <Text dimColor>over the auto-download limit — /download {message.id.slice(0, 6)}</Text>
+          : <Text dimColor>not downloaded — /download {message.id.slice(0, 6)}</Text>
+
   return (
-    <Box flexDirection="column">
-      <Text>
-        <Text color="cyan">📎 {message.name}</Text>
-        <Text dimColor> ({size})</Text>
-      </Text>
-
-      {status === 'downloading' && (
-        <Box paddingLeft={3}><Bar progress={attachment.progress || 0} /></Box>
-      )}
-
-      {status === 'ready' && (
-        <Box paddingLeft={3}><Text color="green">saved to {attachment.path}</Text></Box>
-      )}
-
-      {status === 'failed' && (
-        <Box paddingLeft={3}><Text color="red">failed: {attachment.error}</Text></Box>
-      )}
-
-      {status === 'available' && (
-        <Box paddingLeft={3}>
-          <Text dimColor>over the auto-download limit — /download {message.id.slice(0, 6)}</Text>
-        </Box>
-      )}
-
-      {!status && (
-        <Box paddingLeft={3}>
-          <Text dimColor>not downloaded — /download {message.id.slice(0, 6)}</Text>
-        </Box>
-      )}
+    <Box paddingLeft={8}>
+      <Text><Text dimColor>{MARKER.detail}  </Text>{detail}</Text>
     </Box>
   )
 }

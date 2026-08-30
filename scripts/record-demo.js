@@ -88,8 +88,11 @@ async function main () {
   await type(app, 'that is the idea. offline members catch up on reconnect.')
   await settle(app, 'Alice replies. Her message is sealed before it touches the wire.')
 
-  await type(app, '/members')
-  await settle(app, '/members lists everyone admitted to the room.')
+  // Capture the command menu open, before it is completed.
+  app.stdin.write('/me')
+  await settle(app, 'Typing a slash opens the command menu, filtered as you type.')
+  app.stdin.write('\r')
+  await settle(app, 'Enter takes the highlighted command and runs it.')
 
   const file = path.join(await mkdtemp(path.join(tmpdir(), 'openchat-demo-')), 'protocol-notes.md')
   await writeFile(file, '# openchat\n\ntopic is public. the key never is.\n')
@@ -98,6 +101,9 @@ async function main () {
 
   await type(app, '/invite')
   await settle(app, '/invite prints the string that admits the next member.')
+
+  await type(app, '/nope')
+  await settle(app, 'An unknown command is reported without sending it to the room.')
 
   app.unmount()
   await alice.close()

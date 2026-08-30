@@ -23,6 +23,7 @@ export class Terminal {
     this.client = client
     this.sim = sim
     this.root = root
+    this._logSignature = null
     this.state = initialState({
       publicKey: client.identity.publicKeyHex,
       nick: client.identity.nick
@@ -41,6 +42,11 @@ export class Terminal {
         <div class="term-status">
           <span class="room"></span>
           <span class="conn"><span class="dot"></span><span class="conn-text"></span></span>
+        </div>
+        <div class="term-welcome">
+          <span><span class="star">✻</span> <b>Welcome to openchat</b></span>
+          <span>end-to-end encrypted · no server · /help for commands</span>
+          <span class="welcome-room"></span>
         </div>
         <div class="term-body">
           <div class="log" role="log" aria-live="polite" aria-label="Chat transcript"></div>
@@ -68,6 +74,7 @@ export class Terminal {
     this.$log = this.root.querySelector('.log')
     this.$members = this.root.querySelector('.members')
     this.$facts = this.root.querySelector('.room-facts')
+    this.$welcome = this.root.querySelector('.welcome-room')
     this.$chips = this.root.querySelector('.chips')
     this.$form = this.root.querySelector('.input-row')
     this.$input = this.root.querySelector('.input')
@@ -181,6 +188,10 @@ export class Terminal {
     const room = state.room
 
     this.$room.textContent = room ? `#${room.name}` : 'no room'
+    if (this.$welcome) {
+      const me = state.self?.nick || ''
+      this.$welcome.textContent = room ? `room: #${room.name}   you: ${me}` : 'no room yet'
+    }
 
     const peers = state.connection.peers
     const tabs = peers === 1 ? '1 other tab' : `${peers} other tabs`
@@ -193,8 +204,24 @@ export class Terminal {
   }
 
   _renderLog (state) {
+    const entries = transcript(state)
+
+    // Rebuilding the log throws away anything the reader had selected, so only
+    // do it when something in the transcript actually changed. Presence updates
+    // and connection blips arrive constantly and touch none of this.
+    const signature = entries.map((entry) => (
+      entry.kind === 'notice'
+        ? entry.key
+        : `${entry.key}:${state.attachments[entry.message.id]?.status || ''}:` +
+          `${state.attachments[entry.message.id]?.progress || ''}:` +
+          `${state.members[entry.message.author]?.nick || ''}`
+    )).join('|')
+
+    if (signature === this._logSignature) return
+    this._logSignature = signature
+
     const nearBottom = this.$log.scrollHeight - this.$log.scrollTop - this.$log.clientHeight < 80
-    this.$log.replaceChildren(...transcript(state).map((entry) => this._line(entry, state)))
+    this.$log.replaceChildren(...entries.map((entry) => this._line(entry, state)))
     // Only auto-scroll if the reader was already at the bottom; yanking them
     // away from something they scrolled back to read is worse than a missed line.
     if (nearBottom) this.$log.scrollTop = this.$log.scrollHeight
@@ -205,7 +232,7 @@ export class Terminal {
 
     if (entry.kind === 'notice') {
       el.className = `line notice notice--${entry.notice.level}`
-      el.textContent = entry.notice.text
+      el.textContent = (entry.notice.level === 'error' ? '⎿  ✗ ' : '⎿  ') + entry.notice.text
       return el
     }
 
@@ -214,27 +241,45 @@ export class Terminal {
 
     if (message.type === 'system') {
       el.classList.add('meta')
-      el.textContent = `· ${formatSystemEvent(message, state.members)}`
+      el.textContent = `⎿  ${formatSystemEvent(message, state.members)}`
       return el
     }
 
     if (message.type === 'nick') {
       el.classList.add('meta')
-      el.textContent = `· ${formatNickChange(message, entry.previousName)}`
+      el.textContent = `⎿  ${formatNickChange(message, entry.previousName)}`
       return el
     }
+
+    const isSelf = message.author === state.self?.publicKey
 
     const time = document.createElement('span')
     time.className = 'time'
     time.textContent = formatTime(message.ts)
+    el.append(time)
 
-    const who = document.createElement('span')
-    who.className = 'who'
-    who.style.color = `var(--author-${colorForAuthor(message.author)})`
-    who.textContent = displayName(state.members[message.author], message.author)
-    if (message.author === state.self?.publicKey) who.classList.add('who--self')
+    if (isSelf) {
+      // Your own messages echo back behind a caret, as they do in the CLI.
+      el.classList.add('line--self')
+      const marker = document.createElement('span')
+      marker.className = 'marker'
+      marker.textContent = '>'
+      el.append(marker)
+    } else {
+      const color = `var(--author-${colorForAuthor(message.author)})`
 
-    el.append(time, who)
+      const marker = document.createElement('span')
+      marker.className = 'marker'
+      marker.style.color = color
+      marker.textContent = '⏺'
+
+      const who = document.createElement('span')
+      who.className = 'who'
+      who.style.color = color
+      who.textContent = displayName(state.members[message.author], message.author)
+
+      el.append(marker, who)
+    }
 
     if (message.type === 'text') {
       const body = document.createElement('span')
@@ -246,6 +291,10 @@ export class Terminal {
 
     if (message.type === 'file') {
       el.classList.add('line--file')
+      const name = document.createElement('span')
+      name.className = 'file-name'
+      name.textContent = `${message.name} (${formatBytes(message.size)})`
+      el.append(name)
       el.append(this._attachment(message, state.attachments[message.id]))
     }
 
@@ -255,11 +304,6 @@ export class Terminal {
   _attachment (message, attachment) {
     const wrap = document.createElement('div')
     wrap.className = 'attach'
-
-    const head = document.createElement('div')
-    head.className = 'attach-head'
-    head.textContent = `${message.name} · ${formatBytes(message.size)}`
-    wrap.append(head)
 
     const status = attachment?.status
 

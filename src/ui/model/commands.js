@@ -58,11 +58,22 @@ export function parseInput (input) {
   }
 }
 
+/**
+ * Commands matching what has been typed so far, for the completion menu.
+ * Returns the command objects, so the menu can show each one's help text.
+ *
+ * Once there is a space the command name is settled and the user is typing an
+ * argument, so the menu gets out of the way.
+ */
+export function matchCommands (partial) {
+  if (!partial.startsWith('/') || partial.includes(' ')) return []
+  const prefix = partial.slice(1).toLowerCase()
+  return COMMANDS.filter((c) => c.name.startsWith(prefix))
+}
+
 /** Names matching a partial input, for tab completion. */
 export function completions (partial) {
-  if (!partial.startsWith('/')) return []
-  const prefix = partial.slice(1).toLowerCase()
-  return COMMANDS.filter((c) => c.name.startsWith(prefix)).map((c) => `/${c.name}`)
+  return matchCommands(partial).map((c) => `/${c.name}`)
 }
 
 export function helpText () {

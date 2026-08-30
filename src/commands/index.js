@@ -53,8 +53,7 @@ export async function runCommand (command, ctx) {
     case 'file': {
       const resolved = resolvePath(command.arg)
       notice(`sending ${path.basename(resolved)}…`)
-      const message = await client.sendFile(resolved)
-      notice(`sent ${message.name}`)
+      await client.sendFile(resolved)
       return
     }
 
@@ -71,7 +70,7 @@ export async function runCommand (command, ctx) {
       const rooms = client.roomList
       if (rooms.length === 0) return notice('you have not joined any rooms yet')
       notice(rooms
-        .map((r) => `${r.key === client.activeKey ? '▸' : ' '} ${r.name || shortKey(r.key)}  ${shortKey(r.key, 12)}`)
+        .map((r) => `${r.key === client.activeKey ? '▸' : ' '} ${r.name || shortKey(r.key)}  ${shortKey(r.key, 12)}`.trimStart())
         .join('\n'))
       return
     }
@@ -81,8 +80,8 @@ export async function runCommand (command, ctx) {
       if (!room) return notice('no room open', 'error')
       const members = room.members
       notice(members.length
-        ? members.map((m) => `  ${shortKey(m, 16)}${m === client.identity.publicKeyHex ? ' (you)' : ''}`).join('\n')
-        : '  (just you)')
+        ? members.map((m) => `${shortKey(m, 16)}${m === client.identity.publicKeyHex ? ' (you)' : ''}`).join('\n')
+        : '(just you)')
       return
     }
 

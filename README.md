@@ -94,7 +94,37 @@ Inside the UI:
 /quit           leave and exit
 ```
 
-Tab completes commands. Ctrl+C quits.
+Typing `/` opens a command menu that filters as you type; arrow keys move, Tab or
+Enter takes the highlighted command. Ctrl+C quits.
+
+The interface follows Claude Code rather than a full-screen terminal app. The
+transcript is written into your shell's own scrollback via Ink's `<Static>` and
+never repainted, so scrolling, selection and copy/paste keep working and a long
+room costs nothing to redraw. Only the prompt is live:
+
+```
+╭─────────────────────────────────────────────────────────╮
+│ ✻ Welcome to openchat                                   │
+│                                                         │
+│   end-to-end encrypted · no server · /help for commands │
+│                                                         │
+│   room: #design                                         │
+│   you:  ada (51400cd3)                                  │
+╰─────────────────────────────────────────────────────────╯
+
+  ⎿  bob joined
+20:06 ⏺ bob  got the invite — this is over the DHT, no server anywhere
+20:06 > that is the idea. offline members catch up on reconnect.
+╭──────────────────────────────────────────────────────────────────────╮
+│ > /me                                                                │
+╰──────────────────────────────────────────────────────────────────────╯
+  ❯ /members          list the members of this room
+  #design · ● 1 peer · ada         /help for commands · ctrl+c to quit
+```
+
+Your own messages echo behind a caret, anything that arrives is introduced by a
+dot in the sender's colour, and detail belonging to the line above — command
+output, an attachment's progress — hangs under an elbow.
 
 ## Security model
 

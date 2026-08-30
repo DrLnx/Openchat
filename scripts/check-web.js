@@ -114,6 +114,44 @@ await page.waitForFunction(
 )
 check(true, 'a message crosses between two real clients')
 
+// Attachments: pick a file, watch it chunk through the transport, and confirm
+// it renders as an attachment with a preview rather than raw metadata.
+await page.setInputFiles('.file-input', {
+  name: 'agenda.md',
+  mimeType: 'text/markdown',
+  buffer: Buffer.from('# agenda\n\n- ship it\n')
+})
+await page.waitForFunction(
+  () => document.querySelector('.attach') !== null,
+  null,
+  { timeout: 15000 }
+)
+check(true, 'a file sent from the browser renders as an attachment')
+
+const preview = await page.textContent('.attach')
+check(preview.includes('ship it'), 'a text attachment previews inline')
+check(
+  await page.$eval('.line--file .file-name', (el) => el.textContent.includes('agenda.md')),
+  'the attachment names itself on the message line'
+)
+
+// The elbow marker must sit beside the attachment, not adrift on the page.
+// Query and read in one evaluate: `$eval` takes the handle in a separate
+// round-trip, and a log re-render in between detaches the node, which reports
+// an empty computed style rather than the real one.
+const marker = await page.evaluate(() => {
+  const el = document.querySelector('.attach')
+  if (!el) return null
+  return {
+    parentPosition: getComputedStyle(el).position,
+    markerPosition: getComputedStyle(el, '::before').position
+  }
+})
+check(
+  marker?.parentPosition === 'relative' && marker?.markerPosition === 'absolute',
+  `the attachment marker is anchored to the attachment (${JSON.stringify(marker)})`
+)
+
 // The recorded CLI transcript.
 const replay = await page.textContent('#replay-pre')
 check(replay.includes('#design'), 'the recorded CLI frames are embedded')

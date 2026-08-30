@@ -194,28 +194,45 @@
   }
 
   .line { word-wrap: break-word; overflow-wrap: anywhere; }
-  .line .time { color: var(--term-muted); margin-right: .5rem; }
-  .line .who { font-weight: 600; margin-right: .5rem; }
-  .line .who--self { text-decoration: underline; text-underline-offset: 3px; }
+  .line .time { color: var(--term-muted); margin-right: .45rem; }
+  .line .marker { margin-right: .4rem; }
+  .line .who { font-weight: 600; margin-right: .55rem; }
+  .line--self { color: var(--term-muted); }
+  .line .file-name { color: var(--author-cyan); }
   .line.meta { color: var(--term-muted); }
   .notice { color: var(--term-muted); white-space: pre-wrap; }
-  .notice::before { content: "· "; }
   .notice--error { color: var(--author-red); }
-  .notice--error::before { content: "✗ "; }
   .notice--warn { color: var(--author-yellow); }
 
-  .attach {
-    margin: .3rem 0 .4rem 1.4rem;
-    padding: .5rem .6rem;
-    background: var(--term-raise);
-    border-left: 2px solid var(--author-cyan);
-    border-radius: 0 5px 5px 0;
+  /* Printed once when the room opens, the way the CLI greets you. */
+  .term-welcome {
+    margin: .7rem .8rem 0;
+    padding: .55rem .7rem;
+    border: 1px solid var(--author-yellow);
+    border-radius: 6px;
+    color: var(--term-muted);
+    font-size: .75rem;
     display: flex;
     flex-direction: column;
-    gap: .4rem;
+    gap: .3rem;
   }
-  .attach-head { color: var(--author-cyan); }
-  .attach-head::before { content: "📎 "; }
+  .term-welcome b { color: var(--term-ink); font-weight: 600; }
+  .term-welcome .star { color: var(--author-yellow); }
+
+  .attach {
+    position: relative; /* the elbow below is placed against this, not the page */
+    margin: .25rem 0 .45rem 2.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+  }
+  .attach::before {
+    content: "⎿";
+    color: var(--term-muted);
+    position: absolute;
+    left: -1.2rem;
+    top: 0;
+  }
   .attach-hint { color: var(--term-muted); font-size: .75rem; }
   .attach-error { color: var(--author-red); font-size: .75rem; }
   .attach-image { max-width: 100%; border-radius: 4px; display: block; }
@@ -524,8 +541,15 @@
     <h2>Recorded from a real session</h2>
     <p>
       These frames are not mock-ups. Two genuine openchat clients were run against a
-      local DHT, and the Ink UI below is what one of them rendered — real peers, real
-      swarm, real decrypted messages.
+      local DHT, and the interface below is what one of them rendered — real peers,
+      real swarm, real decrypted messages.
+    </p>
+    <p class="note">
+      The interface follows Claude Code rather than a full-screen terminal app: the
+      transcript is written into your shell's own scrollback and never repainted, so
+      selection and copy still work, and only the prompt at the bottom is live. Your
+      messages echo behind a caret, arrivals are marked with a dot, and detail — command
+      output, an attachment's progress — hangs beneath under an elbow.
     </p>
     <div class="replay">
       <div class="replay-frame"><pre id="replay-pre">loading…</pre></div>
