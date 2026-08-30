@@ -36,6 +36,7 @@ export function App ({ client }) {
       messages: room ? room.messages : []
     })
     dispatch({ type: 'rooms', rooms: client.roomList.map((r) => ({ ...r, unread: 0 })) })
+    if (room) dispatch({ type: 'known-members', publicKeys: room.members })
     dispatch({
       type: 'connection',
       connection: {
@@ -53,9 +54,8 @@ export function App ({ client }) {
     const onAttachment = ({ id, ...attachment }) => dispatch({ type: 'attachment', id, attachment })
     const onNotice = ({ text, level }) => notice(text, level)
     const onMember = ({ author }) => dispatch({
-      type: 'member',
-      publicKey: author,
-      member: { status: 'online' }
+      type: 'known-members',
+      publicKeys: [author]
     })
 
     client.on('messages', onMessages)

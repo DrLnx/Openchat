@@ -57,6 +57,16 @@ export function describeAttachment (message, attachment) {
   }
 }
 
+/**
+ * A nick message reads as a rename only if we knew a different name before. The
+ * first one we see from someone is an introduction, and "bob is now known as
+ * bob" is not a sentence anyone wants to read.
+ */
+export function formatNickChange (message, previousName) {
+  if (!previousName || previousName === message.nick) return `${message.nick} joined`
+  return `${previousName} is now known as ${message.nick}`
+}
+
 export function formatSystemEvent (message, members) {
   const who = displayName(members?.[message.subject], message.subject || message.author)
   switch (message.event) {

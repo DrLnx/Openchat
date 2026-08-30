@@ -17,7 +17,9 @@ export function initialState (self = null) {
     rooms: [], // [{ key, name, unread }]
     messages: [], // ordered by protocol/order.js
     notices: [], // local-only lines: errors, help output, command results
-    members: {}, // publicKey -> { nick, status, lastSeen }
+    // You are a member of your own room before you have said anything, so seed
+    // yourself — otherwise the member list is empty until you first speak.
+    members: self ? { [self.publicKey]: { nick: self.nick, status: 'online' } } : {},
     attachments: {}, // message id -> { status, progress, path, error }
     connection: { state: 'offline', peers: 0 },
     lastError: null
@@ -63,6 +65,17 @@ export function reduce (state, action) {
 
     case 'members':
       return { ...state, members: action.members }
+
+    // Membership the room knows about directly (the Autobase writer set), as
+    // opposed to what can be inferred from the transcript. Someone who joined
+    // and never spoke is still in the room, and should be listed.
+    case 'known-members': {
+      const members = { ...state.members }
+      for (const publicKey of action.publicKeys) {
+        members[publicKey] = { status: 'online', ...members[publicKey] }
+      }
+      return { ...state, members }
+    }
 
     case 'member':
       return {
@@ -116,10 +129,25 @@ export function clockFor (state) {
  * this client and must never reach the wire or affect ordering.
  */
 export function transcript (state) {
+  // Names as they were at each point in the log, not as they are now: a rename
+  // line has to say what someone was called *before* it, and the member map
+  // only knows the latest. Walking the ordered messages is the only way to get
+  // that right for a line scrolled back to hours later.
+  const nameAt = new Map()
+  const messages = []
+
+  for (const m of state.messages) {
+    if (m.type === 'presence') continue // presence drives the sidebar, not the log
+    const entry = { kind: 'message', key: m.id, ts: m.ts, message: m }
+    if (m.type === 'nick') {
+      entry.previousName = nameAt.get(m.author) || null
+      nameAt.set(m.author, m.nick)
+    }
+    messages.push(entry)
+  }
+
   const lines = [
-    ...state.messages
-      .filter((m) => m.type !== 'presence') // presence drives the sidebar, not the log
-      .map((m) => ({ kind: 'message', key: m.id, ts: m.ts, message: m })),
+    ...messages,
     ...state.notices.map((n) => ({ kind: 'notice', key: n.id, ts: n.ts, notice: n }))
   ]
   return lines.sort((a, b) => a.ts - b.ts || (a.kind === b.kind ? 0 : a.kind === 'notice' ? 1 : -1))

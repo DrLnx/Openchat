@@ -1,0 +1,632 @@
+<title>openchat Terminal Harness</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+
+<style>
+  /* ── Tokens ──────────────────────────────────────────────────────────────
+     Light is the base; dark redefines only these values, once for the
+     un-stamped system default and once for an explicit toggle. Every
+     component below reads tokens and never a raw colour. */
+  :root {
+    --ground: #eef0f5;
+    --surface: #ffffff;
+    --surface-2: #e4e7ef;
+    --ink: #171a24;
+    --ink-2: #525869;
+    --rule: #d3d7e3;
+    --signal: #8f5d0d;
+    --signal-soft: #f3e7d1;
+    --crypto: #1c6a77;
+    --danger: #a3382a;
+
+    /* The terminal keeps its own world in both themes. A washed-out light
+       terminal would be a worse instrument, and this one is the hero. */
+    --term-bg: #12141c;
+    --term-surface: #191c26;
+    --term-raise: #212533;
+    --term-ink: #dcd9d0;
+    --term-muted: #7e8397;
+    --term-rule: #2b2f3e;
+
+    --author-cyan: #64c1cf;
+    --author-green: #8bbf6a;
+    --author-yellow: #e0a33e;
+    --author-magenta: #c48ad0;
+    --author-blue: #7aa2e3;
+    --author-red: #dd7f6b;
+    --author-white: #d6d3ca;
+
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    --shadow: 0 1px 2px rgba(20, 22, 32, .06), 0 8px 24px rgba(20, 22, 32, .07);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0f1118;
+      --surface: #161923;
+      --surface-2: #1d212e;
+      --ink: #e5e3dc;
+      --ink-2: #979cae;
+      --rule: #2a2e3c;
+      --signal: #e0a33e;
+      --signal-soft: #2a2317;
+      --crypto: #64c1cf;
+      --danger: #dd7f6b;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 12px 32px rgba(0, 0, 0, .35);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0f1118;
+    --surface: #161923;
+    --surface-2: #1d212e;
+    --ink: #e5e3dc;
+    --ink-2: #979cae;
+    --rule: #2a2e3c;
+    --signal: #e0a33e;
+    --signal-soft: #2a2317;
+    --crypto: #64c1cf;
+    --danger: #dd7f6b;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 12px 32px rgba(0, 0, 0, .35);
+  }
+
+  /* ── Page ─────────────────────────────────────────────────────────────── */
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .wrap {
+    max-width: 62rem;
+    margin: 0 auto;
+    padding: clamp(1rem, 3vw, 2.5rem) clamp(.85rem, 3vw, 2rem) 4rem;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(1.75rem, 4vw, 3rem);
+  }
+
+  h1, h2, h3 { text-wrap: balance; margin: 0; }
+
+  /* ── Masthead ─────────────────────────────────────────────────────────── */
+  .masthead { display: flex; flex-direction: column; gap: .75rem; }
+
+  .wordmark {
+    font-family: var(--mono);
+    font-size: clamp(1.9rem, 7vw, 3rem);
+    font-weight: 600;
+    letter-spacing: -.03em;
+    line-height: 1;
+  }
+  .wordmark .caret {
+    color: var(--signal);
+    animation: blink 1.2s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .wordmark .caret { animation: none; }
+  }
+
+  .standfirst {
+    font-family: var(--serif);
+    font-size: clamp(1.02rem, 2.4vw, 1.2rem);
+    color: var(--ink-2);
+    max-width: 46ch;
+    margin: 0;
+  }
+
+  .banner {
+    display: flex;
+    gap: .7rem;
+    align-items: flex-start;
+    background: var(--signal-soft);
+    border-left: 3px solid var(--signal);
+    border-radius: 0 6px 6px 0;
+    padding: .7rem .9rem;
+    font-size: .875rem;
+    color: var(--ink);
+  }
+  .banner strong { font-weight: 600; }
+  .banner-mark {
+    font-family: var(--mono);
+    color: var(--signal);
+    font-weight: 600;
+    flex: none;
+  }
+
+  /* ── Terminal ─────────────────────────────────────────────────────────── */
+  .term {
+    background: var(--term-bg);
+    border: 1px solid var(--term-rule);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    font-family: var(--mono);
+    font-size: .8rem;
+    color: var(--term-ink);
+  }
+
+  .term-status {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: .75rem;
+    padding: .55rem .8rem;
+    background: var(--term-surface);
+    border-bottom: 1px solid var(--term-rule);
+    font-size: .75rem;
+  }
+  .term-status .room { font-weight: 600; }
+  .term-status .conn {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    color: var(--term-muted);
+    text-align: right;
+  }
+  .dot {
+    width: .5rem; height: .5rem; border-radius: 50%;
+    background: var(--term-muted); flex: none;
+  }
+  .dot[data-state="online"] { background: var(--author-green); }
+  .dot[data-state="connecting"] { background: var(--author-yellow); }
+  .dot[data-state="offline"] { background: var(--author-red); }
+
+  .term-body { display: flex; flex-direction: column; }
+
+  .log {
+    padding: .7rem .8rem;
+    height: min(52vh, 26rem);
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: .2rem;
+    scrollbar-width: thin;
+  }
+
+  .line { word-wrap: break-word; overflow-wrap: anywhere; }
+  .line .time { color: var(--term-muted); margin-right: .5rem; }
+  .line .who { font-weight: 600; margin-right: .5rem; }
+  .line .who--self { text-decoration: underline; text-underline-offset: 3px; }
+  .line.meta { color: var(--term-muted); }
+  .notice { color: var(--term-muted); white-space: pre-wrap; }
+  .notice::before { content: "· "; }
+  .notice--error { color: var(--author-red); }
+  .notice--error::before { content: "✗ "; }
+  .notice--warn { color: var(--author-yellow); }
+
+  .attach {
+    margin: .3rem 0 .4rem 1.4rem;
+    padding: .5rem .6rem;
+    background: var(--term-raise);
+    border-left: 2px solid var(--author-cyan);
+    border-radius: 0 5px 5px 0;
+    display: flex;
+    flex-direction: column;
+    gap: .4rem;
+  }
+  .attach-head { color: var(--author-cyan); }
+  .attach-head::before { content: "📎 "; }
+  .attach-hint { color: var(--term-muted); font-size: .75rem; }
+  .attach-error { color: var(--author-red); font-size: .75rem; }
+  .attach-image { max-width: 100%; border-radius: 4px; display: block; }
+  .attach-text {
+    margin: 0; padding: .4rem .5rem;
+    background: var(--term-bg); border-radius: 4px;
+    max-height: 9rem; overflow: auto;
+    font-size: .72rem; white-space: pre-wrap;
+  }
+  .bar { height: .4rem; background: var(--term-bg); border-radius: 99px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--author-cyan); transition: width .12s linear; }
+
+  .rail {
+    border-top: 1px solid var(--term-rule);
+    padding: .6rem .8rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .3rem 1rem;
+    align-items: start;
+    font-size: .72rem;
+  }
+  .rail-title {
+    color: var(--term-muted);
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    font-size: .62rem;
+    font-weight: 600;
+  }
+  .rail-title--room { grid-column: 2; grid-row: 1; }
+  .members { list-style: none; margin: 0; padding: 0; grid-column: 1; }
+  .members li { display: flex; align-items: center; gap: .4rem; }
+  .members .empty { color: var(--term-muted); }
+  .mdot { width: .4rem; height: .4rem; border-radius: 50%; background: var(--author-green); flex: none; }
+  .mdot[data-status="typing"] { background: var(--author-yellow); }
+  .mdot[data-status="offline"] { background: var(--term-muted); }
+  .you { color: var(--term-muted); }
+
+  .room-facts { margin: 0; grid-column: 2; }
+  .room-facts dt {
+    color: var(--term-muted); font-size: .62rem;
+    text-transform: uppercase; letter-spacing: .08em; margin-top: .3rem;
+  }
+  .room-facts dd { margin: 0; overflow-wrap: anywhere; }
+
+  .chips {
+    display: flex; flex-wrap: wrap; gap: .35rem;
+    padding: .5rem .8rem 0;
+  }
+  .chip {
+    font-family: var(--mono); font-size: .72rem;
+    background: var(--term-raise); color: var(--term-ink);
+    border: 1px solid var(--term-rule); border-radius: 99px;
+    padding: .3rem .6rem; cursor: pointer;
+  }
+  .chip:hover { border-color: var(--author-cyan); color: var(--author-cyan); }
+
+  .input-row {
+    display: flex; align-items: center; gap: .5rem;
+    padding: .6rem .8rem .7rem;
+  }
+  .prompt { color: var(--author-cyan); font-weight: 600; }
+  .input {
+    flex: 1; min-width: 0;
+    background: transparent; border: none; outline: none;
+    color: var(--term-ink); font-family: var(--mono);
+    font-size: 16px; /* keeps iOS from zooming on focus */
+    padding: .35rem 0;
+  }
+  .input::placeholder { color: var(--term-muted); }
+  .send {
+    background: var(--term-raise); color: var(--term-ink);
+    border: 1px solid var(--term-rule); border-radius: 6px;
+    padding: .35rem .7rem; cursor: pointer; font-size: .85rem;
+  }
+
+  .input-row:focus-within { background: var(--term-surface); }
+  .boot-error { padding: 2rem; color: var(--danger); font-family: var(--sans); }
+
+  /* ── Prose sections ───────────────────────────────────────────────────── */
+  section { display: flex; flex-direction: column; gap: .9rem; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .68rem;
+    text-transform: uppercase;
+    letter-spacing: .14em;
+    color: var(--signal);
+    font-weight: 600;
+  }
+  h2 {
+    font-family: var(--serif);
+    font-size: clamp(1.3rem, 3.4vw, 1.7rem);
+    font-weight: 600;
+    letter-spacing: -.01em;
+  }
+  p { font-family: var(--serif); margin: 0; max-width: 64ch; }
+  p.note { font-size: .92rem; color: var(--ink-2); }
+  code {
+    font-family: var(--mono); font-size: .85em;
+    background: var(--surface-2); border-radius: 4px; padding: .1em .35em;
+  }
+
+  /* ── Real / simulated ledger ──────────────────────────────────────────── */
+  .ledger {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .ledger-col { background: var(--surface); padding: 1rem 1.05rem; }
+  .ledger h3 {
+    font-family: var(--sans); font-size: .8rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .08em;
+    margin-bottom: .6rem;
+    display: flex; align-items: center; gap: .45rem;
+  }
+  .ledger h3::before {
+    content: ""; width: .55rem; height: .55rem; border-radius: 2px; flex: none;
+  }
+  .ledger-col--real h3::before { background: var(--crypto); }
+  .ledger-col--sim h3::before { background: var(--signal); }
+  .ledger ul { margin: 0; padding-left: 1.05rem; display: flex; flex-direction: column; gap: .35rem; }
+  .ledger li { font-size: .875rem; }
+  .ledger li code { background: var(--surface-2); }
+
+  /* ── Invite ───────────────────────────────────────────────────────────── */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 1rem 1.05rem;
+    display: flex; flex-direction: column; gap: .75rem;
+    box-shadow: var(--shadow);
+  }
+  .invite-string {
+    font-family: var(--mono); font-size: .74rem;
+    background: var(--surface-2); border-radius: 6px;
+    padding: .6rem .7rem; overflow-wrap: anywhere;
+    color: var(--ink);
+  }
+  .actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+  button.action {
+    font-family: var(--sans); font-size: .85rem; font-weight: 500;
+    background: var(--ink); color: var(--ground);
+    border: 1px solid var(--ink); border-radius: 6px;
+    padding: .45rem .85rem; cursor: pointer;
+  }
+  button.action.secondary { background: transparent; color: var(--ink); border-color: var(--rule); }
+  button.action:hover { border-color: var(--signal); }
+  button:focus-visible, .input:focus-visible, a:focus-visible {
+    outline: 2px solid var(--signal); outline-offset: 2px;
+  }
+
+  /* ── Recording ────────────────────────────────────────────────────────── */
+  .replay { display: flex; flex-direction: column; gap: .6rem; }
+  .replay-frame {
+    background: var(--term-bg); color: var(--term-ink);
+    border: 1px solid var(--term-rule); border-radius: 8px;
+    padding: .7rem;
+    overflow-x: auto;
+  }
+  .replay-frame pre {
+    margin: 0; font-family: var(--mono);
+    font-size: clamp(.42rem, 1.55vw, .72rem);
+    line-height: 1.35; white-space: pre;
+  }
+  .replay-caption {
+    font-family: var(--serif); font-size: .92rem; color: var(--ink-2);
+    min-height: 2.8em;
+  }
+  .replay-controls { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .replay-count { font-family: var(--mono); font-size: .78rem; color: var(--ink-2); }
+
+  /* ── Architecture ─────────────────────────────────────────────────────── */
+  .tiers { display: flex; flex-direction: column; gap: .6rem; }
+  .tier {
+    display: grid; grid-template-columns: auto 1fr; gap: .2rem .9rem;
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 8px; padding: .8rem .95rem;
+  }
+  .tier-label {
+    font-family: var(--mono); font-size: .68rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .1em;
+    grid-column: 1; grid-row: 1 / span 2;
+    align-self: start;
+    padding: .18rem .45rem; border-radius: 4px;
+    background: var(--surface-2); color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .tier--shared .tier-label { background: var(--crypto); color: var(--surface); }
+  .tier-files { font-family: var(--mono); font-size: .76rem; overflow-wrap: anywhere; }
+  .tier-note { font-size: .85rem; color: var(--ink-2); font-family: var(--sans); }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 1.2rem;
+    font-size: .85rem;
+    color: var(--ink-2);
+    display: flex; flex-direction: column; gap: .5rem;
+  }
+  footer code { background: var(--surface-2); }
+
+  @media (min-width: 46rem) {
+    .term-body { flex-direction: row; }
+    .log { flex: 1; height: min(58vh, 30rem); }
+    .rail {
+      width: 15rem; flex: none;
+      border-top: none; border-left: 1px solid var(--term-rule);
+      grid-template-columns: 1fr;
+    }
+    .rail-title--room { grid-column: 1; grid-row: auto; margin-top: .8rem; }
+    .members, .room-facts { grid-column: 1; }
+    .ledger { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <h1 class="wordmark">openchat<span class="caret">▌</span></h1>
+    <p class="standfirst">
+      A serverless, end-to-end encrypted group chat that lives in a terminal.
+      This page runs the real thing in your browser, minus the one part a
+      browser cannot do.
+    </p>
+    <div class="banner">
+      <span class="banner-mark">!</span>
+      <span>
+        <strong>Real protocol, simulated transport.</strong>
+        The message format, encryption, signatures, invites and ordering below are
+        the production code, running unmodified. Peer discovery is not — there is no
+        DHT in a browser, so other tabs and in-page members stand in for it.
+      </span>
+    </div>
+  </header>
+
+  <section>
+    <div id="terminal"></div>
+    <p class="note">
+      Type anything and the room answers. The members replying to you hold their own
+      Ed25519 keys and seal their own envelopes — your client verifies and decrypts
+      every one of them the same way it would a stranger across the world.
+    </p>
+  </section>
+
+  <section>
+    <span class="eyebrow">What you are actually looking at</span>
+    <h2>The line between real and simulated</h2>
+    <div class="ledger">
+      <div class="ledger-col ledger-col--real">
+        <h3>Real, unmodified</h3>
+        <ul>
+          <li>Binary message encoding — <code>compact-encoding</code>, the same codecs the CLI writes to disk</li>
+          <li>AES-256-GCM encryption and Ed25519 signatures on every message</li>
+          <li>Invite strings — paste one from the CLI and this page will parse it</li>
+          <li>Causal ordering, so every member sees one transcript</li>
+          <li>Slash-command parsing and the whole chat view-model</li>
+          <li>Attachments: chunked, sealed per chunk, checksum-verified on arrival</li>
+        </ul>
+      </div>
+      <div class="ledger-col ledger-col--sim">
+        <h3>Standing in</h3>
+        <ul>
+          <li>Peer discovery — Hyperswarm's DHT needs UDP; a <code>BroadcastChannel</code> carries frames between tabs instead</li>
+          <li>NAT traversal and Noise transport encryption, which the DHT provides</li>
+          <li>Replication — Autobase and Hypercore are native modules; history is re-sent on request here</li>
+          <li>Blob storage — Hyperblobs on disk becomes chunks in memory</li>
+          <li>The three members talking to you live in this page, not on other machines</li>
+        </ul>
+      </div>
+    </div>
+    <p class="note">
+      Nothing you type leaves your browser. There is no server behind this page to
+      leave to.
+    </p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Two clients, one room</span>
+    <h2>Open it twice</h2>
+    <p>
+      Every tab is a separate client with its own identity and its own copy of the
+      room key. Open a second one and you are watching two real clients exchange
+      sealed envelopes — the transport between them is a browser channel rather
+      than the DHT, but nothing above that layer knows the difference.
+    </p>
+    <div class="panel">
+      <span class="eyebrow">Invite for this room</span>
+      <div class="invite-string" id="invite-string">…</div>
+      <div class="actions">
+        <button class="action" id="invite-copy" type="button">Copy invite</button>
+        <button class="action secondary" id="invite-open" type="button">Open a second tab</button>
+      </div>
+      <p class="note">
+        This is the same format <code>openchat room create</code> prints. It carries the
+        room key and the encryption key together, which is why it has to travel out of
+        band — anyone holding it is a member.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">The actual CLI</span>
+    <h2>Recorded from a real session</h2>
+    <p>
+      These frames are not mock-ups. Two genuine openchat clients were run against a
+      local DHT, and the Ink UI below is what one of them rendered — real peers, real
+      swarm, real decrypted messages.
+    </p>
+    <div class="replay">
+      <div class="replay-frame"><pre id="replay-pre">loading…</pre></div>
+      <div class="replay-caption" id="replay-caption"></div>
+      <div class="replay-controls">
+        <button class="action secondary" id="replay-prev" type="button">Back</button>
+        <button class="action" id="replay-next" type="button">Next</button>
+        <span class="replay-count" id="replay-count"></span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">How one codebase does both</span>
+    <h2>What the browser borrows</h2>
+    <p>
+      The demo is honest because it is not a reimplementation. Everything above the
+      transport is written once, with no Node or native dependencies, and imported by
+      both front ends. A test fails the build if anything in that tier reaches for a
+      Node built-in.
+    </p>
+    <div class="tiers">
+      <div class="tier tier--shared">
+        <span class="tier-label">Shared</span>
+        <div class="tier-files">src/protocol/ · src/ui/model/</div>
+        <div class="tier-note">
+          Message schema and codecs, the encrypted envelope, causal ordering, invite
+          encode/decode, slash-command parsing, the chat state reducer.
+        </div>
+      </div>
+      <div class="tier">
+        <span class="tier-label">CLI only</span>
+        <div class="tier-files">src/core/ · src/ui/ink/</div>
+        <div class="tier-note">
+          Corestore, Hypercore, Autobase, Hyperswarm, Hyperblobs, sodium-native, and
+          the Ink components that draw to a terminal.
+        </div>
+      </div>
+      <div class="tier">
+        <span class="tier-label">Browser only</span>
+        <div class="tier-files">web/</div>
+        <div class="tier-note">
+          The BroadcastChannel transport, the simulated members, and a DOM renderer
+          that reads the same view-model the Ink components do.
+        </div>
+      </div>
+    </div>
+    <p class="note">
+      The two crypto backends — sodium plus node:crypto on one side, WebCrypto plus
+      @noble on the other — are held to byte-identical output by a test that makes
+      each one decrypt what the other sealed. If the browser ever drifts from the CLI,
+      the suite goes red.
+    </p>
+  </section>
+
+  <footer>
+    <div>Run the real thing: <code>npm install &amp;&amp; npm run build &amp;&amp; node bin/openchat.js room create demo</code></div>
+    <div>Built on Hyperswarm, Hypercore, Autobase and Hyperblobs — the Holepunch stack.</div>
+  </footer>
+</div>
+
+<script id="transcript-data" type="application/json">__TRANSCRIPT__</script>
+<script>__BUNDLE__</script>
+<script>
+  (function () {
+    var data;
+    try {
+      data = JSON.parse(document.getElementById('transcript-data').textContent);
+    } catch (err) {
+      data = { frames: [] };
+    }
+
+    var frames = data.frames || [];
+    var index = 0;
+    var pre = document.getElementById('replay-pre');
+    var caption = document.getElementById('replay-caption');
+    var count = document.getElementById('replay-count');
+    var prev = document.getElementById('replay-prev');
+    var next = document.getElementById('replay-next');
+
+    function draw() {
+      if (!frames.length) {
+        pre.textContent = 'No recording bundled with this build.';
+        count.textContent = '';
+        prev.disabled = next.disabled = true;
+        return;
+      }
+      pre.textContent = frames[index].frame;
+      caption.textContent = frames[index].caption;
+      count.textContent = (index + 1) + ' / ' + frames.length;
+      prev.disabled = index === 0;
+      next.disabled = index === frames.length - 1;
+    }
+
+    prev.addEventListener('click', function () {
+      if (index > 0) { index--; draw(); }
+    });
+    next.addEventListener('click', function () {
+      if (index < frames.length - 1) { index++; draw(); }
+    });
+
+    draw();
+  })();
+</script>

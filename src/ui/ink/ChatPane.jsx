@@ -2,7 +2,7 @@ import React from 'react'
 import { Box, Text } from 'ink'
 
 import { FileMessage } from './FileMessage.jsx'
-import { colorForAuthor, displayName, formatTime, formatSystemEvent } from '../model/format.js'
+import { colorForAuthor, displayName, formatTime, formatSystemEvent, formatNickChange } from '../model/format.js'
 
 const NOTICE_COLOR = { error: 'red', warn: 'yellow', info: 'gray' }
 
@@ -22,27 +22,33 @@ function Line ({ entry, members, attachments, self }) {
   }
 
   if (message.type === 'nick') {
-    const previous = displayName(members[message.author], message.author)
-    return <Text dimColor>· {previous} is now known as {message.nick}</Text>
+    return <Text dimColor>· {formatNickChange(message, entry.previousName)}</Text>
   }
 
   const isSelf = message.author === self?.publicKey
   const name = displayName(members[message.author], message.author)
   const color = colorForAuthor(message.author)
 
+  // The timestamp, name and body live in one <Text>, not in sibling boxes.
+  // Ink wraps each box independently, so in a narrow terminal siblings get
+  // broken mid-word — "19:22bo" with the rest of the name on the next line.
+  // Nesting inside a single Text makes the whole line wrap as one flow.
+  const header = (
+    <Text>
+      <Text dimColor>{formatTime(message.ts)} </Text>
+      <Text color={color} bold={isSelf}>{name}</Text>
+      {message.type === 'text' && <Text> {message.body}</Text>}
+    </Text>
+  )
+
+  if (message.type !== 'file') return header
+
   return (
     <Box flexDirection="column">
-      <Box>
-        <Text dimColor>{formatTime(message.ts)} </Text>
-        <Text color={color} bold={isSelf}>{name}</Text>
-        <Text dimColor> </Text>
-        {message.type === 'text' && <Text>{message.body}</Text>}
+      {header}
+      <Box paddingLeft={6}>
+        <FileMessage message={message} attachment={attachments[message.id]} />
       </Box>
-      {message.type === 'file' && (
-        <Box paddingLeft={6}>
-          <FileMessage message={message} attachment={attachments[message.id]} />
-        </Box>
-      )}
     </Box>
   )
 }

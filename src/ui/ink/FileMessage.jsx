@@ -40,9 +40,15 @@ export function FileMessage ({ message, attachment }) {
         <Box paddingLeft={3}><Text color="red">failed: {attachment.error}</Text></Box>
       )}
 
-      {(!status || status === 'available') && (
+      {status === 'available' && (
         <Box paddingLeft={3}>
-          <Text dimColor>too large to fetch automatically — /download {message.id.slice(0, 6)}</Text>
+          <Text dimColor>over the auto-download limit — /download {message.id.slice(0, 6)}</Text>
+        </Box>
+      )}
+
+      {!status && (
+        <Box paddingLeft={3}>
+          <Text dimColor>not downloaded — /download {message.id.slice(0, 6)}</Text>
         </Box>
       )}
     </Box>

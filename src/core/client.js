@@ -146,7 +146,12 @@ export class Client extends EventEmitter {
     const room = this._requireRoom()
     const blobs = this.activeBlobs
     const meta = await blobs.put(filePath)
-    return room.sendFile(meta)
+    const message = await room.sendFile(meta)
+
+    // We already have the bytes — mark it complete so our own attachment does
+    // not render as something still waiting to be fetched.
+    this.emit('attachment', { id: message.id, status: 'ready', progress: 1, path: filePath })
+    return message
   }
 
   /** Fetch an attachment by message id (or a unique id prefix). */

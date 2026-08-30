@@ -7,7 +7,7 @@ const STATUS_MARK = { online: '●', typing: '◐', offline: '○' }
 
 export function Sidebar ({ rooms, activeKey, members, self }) {
   return (
-    <Box flexDirection="column" width={26} borderStyle="round" borderColor="gray" paddingX={1}>
+    <Box flexDirection="column" width={24} flexShrink={0} borderStyle="round" borderColor="gray" paddingX={1}>
       <Text bold dimColor>ROOMS</Text>
       {rooms.length === 0 && <Text dimColor>(none)</Text>}
       {rooms.map((room) => {
