@@ -1,0 +1,108 @@
+// Tier 2 — what actually gets appended to a writer's Autobase core.
+//
+// Two block types. A MESSAGE block wraps a sealed envelope plus the routing
+// metadata `apply()` needs to file it in the view without decrypting anything —
+// apply must be deterministic and cheap, and it has no business doing crypto on
+// every reapply. That metadata is not a leak: the Autobase cores are themselves
+// encrypted with the room key, so only members ever see it.
+//
+// A JOIN block is a writer asking to be admitted. It is appended optimistically
+// (the appender is not a writer yet, by definition) and carries a signature
+// binding the requester's identity key to their writer core key, which is what
+// `apply()` checks before admitting them.
+
+import c from 'compact-encoding'
+import b4a from 'b4a'
+
+import { PROTOCOL_VERSION } from '../protocol/constants.js'
+
+export const BLOCK_TYPE = { MESSAGE: 0, JOIN: 1 }
+export const BLOCK_TYPE_NAME = { 0: 'message', 1: 'join' }
+
+/** Signed by the joiner's identity key to prove the writer core is theirs. */
+export const JOIN_CONTEXT = b4a.from('openchat:join:v1', 'ascii')
+
+const block = {
+  preencode (state, b) {
+    c.uint.preencode(state, b.v)
+    c.uint.preencode(state, BLOCK_TYPE[b.type.toUpperCase()])
+    if (b.type === 'message') {
+      c.uint.preencode(state, b.clock)
+      c.string.preencode(state, b.id)
+      c.fixed32.preencode(state, b.author)
+      c.buffer.preencode(state, b.frame)
+    } else {
+      c.fixed32.preencode(state, b.writerKey)
+      c.fixed32.preencode(state, b.author)
+      c.fixed64.preencode(state, b.signature)
+    }
+  },
+  encode (state, b) {
+    c.uint.encode(state, b.v)
+    c.uint.encode(state, BLOCK_TYPE[b.type.toUpperCase()])
+    if (b.type === 'message') {
+      c.uint.encode(state, b.clock)
+      c.string.encode(state, b.id)
+      c.fixed32.encode(state, b.author)
+      c.buffer.encode(state, b.frame)
+    } else {
+      c.fixed32.encode(state, b.writerKey)
+      c.fixed32.encode(state, b.author)
+      c.fixed64.encode(state, b.signature)
+    }
+  },
+  decode (state) {
+    const v = c.uint.decode(state)
+    const type = BLOCK_TYPE_NAME[c.uint.decode(state)]
+    if (type === undefined) throw new Error('unknown block type')
+
+    if (type === 'message') {
+      return {
+        v,
+        type,
+        clock: c.uint.decode(state),
+        id: c.string.decode(state),
+        author: c.fixed32.decode(state),
+        frame: c.buffer.decode(state)
+      }
+    }
+    return {
+      v,
+      type,
+      writerKey: c.fixed32.decode(state),
+      author: c.fixed32.decode(state),
+      signature: c.fixed64.decode(state)
+    }
+  }
+}
+
+export function encodeBlock (b) {
+  return c.encode(block, { v: PROTOCOL_VERSION, ...b })
+}
+
+export function decodeBlock (buf) {
+  const decoded = c.decode(block, buf)
+  if (decoded.v !== PROTOCOL_VERSION) throw new Error(`unsupported block version ${decoded.v}`)
+  return decoded
+}
+
+/** The bytes a joiner signs: context || writerKey. */
+export function joinChallenge (writerKey) {
+  const out = b4a.alloc(JOIN_CONTEXT.byteLength + writerKey.byteLength)
+  b4a.copy(JOIN_CONTEXT, out, 0)
+  b4a.copy(writerKey, out, JOIN_CONTEXT.byteLength)
+  return out
+}
+
+// Hyperbee view keys. Messages sort by Lamport clock so a range read comes back
+// close to display order; `protocol/order.js` still has the final say.
+export const MESSAGE_PREFIX = 'msg:'
+export const WRITER_PREFIX = 'writer:'
+
+export function messageKey ({ clock, id }) {
+  return `${MESSAGE_PREFIX}${String(clock).padStart(12, '0')}:${id}`
+}
+
+export function writerRecordKey (authorHex) {
+  return `${WRITER_PREFIX}${authorHex}`
+}

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+web/bundle.js
+web/openchat-demo.html
+*.log
+.DS_Store
+.openchat-test/
