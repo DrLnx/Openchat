@@ -19,8 +19,8 @@
     "build:web": "node scripts/build-web.js",
     "dev": "node scripts/build.js --watch",
     "pretest": "npm run build",
-    "test": "node --test --test-concurrency=1 \"test/**/*.test.js\"",
-    "test:unit": "node --test \"test/unit/*.test.js\"",
+    "test": "node --import ./scripts/jsx-register.js --test --test-concurrency=1 \"test/**/*.test.js\"",
+    "test:unit": "node --import ./scripts/jsx-register.js --test \"test/unit/*.test.js\"",
     "record": "node scripts/record-demo.js",
     "start": "node bin/openchat.js"
   },
@@ -44,7 +44,8 @@
     "sodium-native": "^5.1.0"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "ink-testing-library": "^4.0.0"
   },
   "license": "MIT"
 }

@@ -224,7 +224,7 @@ export class Room extends EventEmitter {
     this._swarm = swarm
     swarm.on('connection', (connection) => this._attachPairing(connection))
     for (const connection of swarm.connections) this._attachPairing(connection)
-    await swarm.join(this.topic)
+    swarm.join(this.topic) // returns immediately; discovery settles in the background
     return this
   }
 

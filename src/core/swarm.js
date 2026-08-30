@@ -71,22 +71,41 @@ export class Swarm extends EventEmitter {
     return this.connections.size
   }
 
+  /**
+   * Deliberately does not wait for the DHT to bootstrap. Announcing and looking
+   * up take seconds on a good connection and forever on a bad one, and blocking
+   * on either means the UI cannot paint until the network cooperates. Hyperswarm
+   * queues the work; peers arrive later via the `connection` event.
+   */
   async ready () {
+    return this
+  }
+
+  /** Resolve once the DHT node is bootstrapped — for tests and diagnostics. */
+  async bootstrapped () {
     await this.swarm.dht.ready()
     return this
   }
 
   /**
-   * Announce and look up a room topic.
+   * Announce and look up a room topic. Returns as soon as the lookup is queued;
+   * await `discovery.flushed()` yourself if you need it to have landed.
+   *
    * @param {Uint8Array} topic 32-byte discovery topic (see protocol/invite.js)
    */
-  async join (topic) {
+  join (topic) {
     const id = b4a.toString(topic, 'hex')
     if (this.topics.has(id)) return this.topics.get(id)
 
     const discovery = this.swarm.join(b4a.from(topic), { server: true, client: true })
     this.topics.set(id, discovery)
-    await discovery.flushed()
+
+    // Surface announce failures rather than leaving an unhandled rejection.
+    discovery.flushed().then(
+      () => this.emit('announced', id),
+      (err) => this.emit('announce-error', id, err)
+    )
+
     return discovery
   }
 
