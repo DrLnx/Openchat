@@ -16,85 +16,277 @@ encrypted append-only log between themselves. Built on the Holepunch stack —
 needing an install. See [The browser harness](#the-browser-harness) for what it
 does and does not simulate.
 
-## Requirements
-
-Node.js 22 or newer.
-
 ## Install
 
+> **v0.1.0 has not been published to npm, the AUR or Homebrew yet.** The
+> commands below are what they will be; until the first release is tagged, use
+> [From source](#from-source), which works today. Release steps are in
+> [RELEASING.md](RELEASING.md).
+
+Everything needs **Node.js 22 or newer** and nothing else. There is no server to
+run and no account to create.
+
+### npm — any platform
+
 ```bash
+npm install -g openchat
+```
+
+### Arch, Manjaro, EndeavourOS
+
+```bash
+yay -S openchat        # or: paru -S openchat
+```
+
+<details>
+<summary>Building the package by hand</summary>
+
+```bash
+git clone https://aur.archlinux.org/openchat.git
+cd openchat && makepkg -si
+```
+
+The `PKGBUILD` lives in [`packaging/PKGBUILD`](packaging/PKGBUILD).
+</details>
+
+### macOS and Linux — Homebrew
+
+```bash
+brew install n3xtpy/openchat/openchat
+```
+
+### One line
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/n3xtpy/Openchat/main/install.sh | sh
+```
+
+That script checks your Node version and runs the npm install above — nothing
+else. Piping a script from the internet into a shell is a habit worth being
+suspicious of, especially from a security tool, so
+[read it first](install.sh); it is short on purpose.
+
+### From source
+
+```bash
+git clone https://github.com/n3xtpy/Openchat.git
+cd Openchat
 npm install
 npm run build
+npm link          # optional: puts `openchat` on your PATH
 ```
 
-Optionally put it on your `PATH`:
+Without `npm link`, run it as `node bin/openchat.js` wherever the docs below say
+`openchat`.
+
+## First run
 
 ```bash
-npm install -g .
+openchat
 ```
 
-The examples below use `node bin/openchat.js`; substitute `openchat` if you
-installed globally.
+That walks you through setting up an account — which here means generating a
+keypair, not signing up for anything — and shows a recovery phrase. Write it
+down: it is the only way back to your identity, and no server can reissue it.
 
-## Chatting with someone
-
-On your machine, create a room:
+Then, to talk to someone:
 
 ```bash
-node bin/openchat.js room create design-team
+openchat room create design-team     # prints an invite string
 ```
 
-That prints an invite string:
-
-```
-openchat1:AUEp_UIOShE7g9tC3Do9ZA6sVeZvkFax14hJac-BtIfmylZyEejGUuW8v94FHo0-...
-```
-
-Send it to the other person **out of band** — a call, a QR code, a channel you
-already trust. Anyone holding that string is a member of the room. On their
-machine:
+Send that invite **out of band** — a call, a QR code, a channel you already
+trust. Anyone holding it is a member. On their machine:
 
 ```bash
-node bin/openchat.js room join openchat1:AUEp_UIOSh...
+openchat room join openchat1:AUEp_UIOSh...
+openchat                             # open the app
 ```
 
-Then either of you runs `openchat` to open the chat UI:
+One of you has to be online while the other joins: admitting a member is
+something an existing member does, and there is no server to do it for you.
+
+## Two accounts, two terminals
+
+Profiles are separate accounts on one machine — different keys, different
+storage, different rooms, different contacts. One per terminal works well.
 
 ```bash
-node bin/openchat.js
+# terminal one
+openchat --profile work
+
+# terminal two
+openchat --profile personal
 ```
 
-You must be online while someone joins. Admitting a new member is something an
-existing member does, so a room whose members are all offline cannot accept
-anyone — see [Known limitations](#known-limitations).
+Run `openchat whoami --profile work` to get its public key, then `/dm <key>` in
+the other terminal. No invite is involved; see [Direct
+messages](#direct-messages).
+
+```bash
+openchat profiles                 # list the accounts on this machine
+openchat login personal           # change which one is the default
+openchat logout                   # back to the default profile
+```
+
+`OPENCHAT_PROFILE` does the same job as `--profile`, so a terminal can be pinned
+to an account by exporting it once. Nothing is shared between profiles, and
+`logout` only changes which one is current — it deletes nothing.
+
+## Trying it without a second machine
+
+```bash
+npm install && npm run demo
+```
+
+That runs a guided tour on one machine with no network: two real profiles, two
+real clients, the real Ink UI, and a local DHT. It opens a room, joins it from
+the second account, sends a DM derived from nothing but a public key, switches
+between conversations, closes the room and watches a valid invite get refused,
+transfers ownership, and sends a file. Every frame it prints came out of the
+actual app.
+
+`npm test` runs the same machinery as assertions — 50 tests, no network needed.
+
+## Finding people
+
+There is no global user directory, because there is no server to hold one. You
+reach someone because you have their **public key**, and there are three ways to
+get it:
+
+- **A room you share.** `/members` lists everyone's key, and you can DM any of
+  them. In practice this is how most conversations start.
+- **A contact you saved.** `/add <key> <name>`, then `/dm <name>` from then on.
+- **A key they gave you.** `openchat whoami` prints yours; hand it over however
+  you like.
+
+Nobody can enumerate users, and nobody can cold-message you without your key.
+
+## Direct messages
+
+A DM needs no invite at all. Both identities are Ed25519 keys, which convert to
+X25519, so each side runs Diffie-Hellman against the other's *public* key and
+independently derives the same secret. Nothing is transmitted and nothing is
+negotiated:
+
+```bash
+node bin/openchat.js dm 03d35f4c5d0f36a0…    # or a contact name
+```
+
+From that shared secret openchat derives the discovery topic *and* the
+encryption key. Deriving the topic from a secret is the interesting part: a
+third party watching the DHT cannot compute it, so they cannot tell the
+conversation exists, let alone read it. Contrast a room, whose topic is public
+by design.
+
+Structurally a DM is not an Autobase. With two participants there is nothing to
+linearize across an unknown writer set — each side appends to its own outbox
+core, both read both, and `protocol/order.js` merges them. Same ordering rule as
+rooms, so both people always see the same conversation.
+
+## Rooms you own
+
+The person who opens a room owns it. Ownership is established by the log itself:
+the creator's own membership record is the first one written, so it needs no
+separate ceremony, and every member independently agrees who the owner is.
+
+```
+/close              stop new members joining (existing ones keep talking)
+/reopen             let the invite work again
+/transfer <who>     hand the room over — you lose control immediately
+/remove <who>       remove a member; their history stays
+/allow <who>        undo a removal
+```
+
+Removal is recorded in the room's log, not just acted on once. That matters
+because a removed member still holds the invite: without the record they would
+simply ask to join again and any honest client would relay them back in.
+
+Only the owner can do these, and that is checked by *every* member's client when
+applying the block, not just by the owner's. One honest caveat: `/close` is
+enforced by members' clients refusing to relay a newcomer's join. A member who
+modified their client could still let someone in, exactly as they could hand out
+the invite again. It is not a cryptographic seal.
 
 ## Commands
 
 ```
-openchat                          launch the chat UI (resumes your rooms)
+openchat                          launch the chat UI (resumes your conversations)
 openchat room create <name>       create a room and print its invite
 openchat room join <invite>       join a room from an invite string
 openchat rooms                    list rooms you have joined
+openchat dm <key|contact>         open a direct conversation
+openchat contacts [add|remove]    manage saved contacts
 openchat whoami                   show your identity and public key
+openchat profiles                 list the accounts on this machine
+openchat login [name]             switch profile
+openchat logout                   switch back to the default profile
 openchat backup                   print the recovery phrase for your identity
 openchat restore <phrase…>        restore an identity from a recovery phrase
+
+  --profile <name>                act as another account for one command
 ```
 
 Inside the UI:
 
 ```
-/join <invite>  join a room from an invite string
-/invite         print an invite for the current room
-/nick <name>    set your display name
-/file <path>    send a file to the room
-/download <id>  fetch an attachment you skipped
-/rooms          list the rooms you have joined
-/members        list the members of this room
-/help           show this list
-/quit           leave and exit
+/dm <key|name>      message someone directly — no invite needed
+/join <invite>      join a room from an invite string
+/new <name>         open a new room you own
+/switch <name>      jump to another room or conversation
+/invite             print an invite for the current room
+/nick <name>        set your display name
+/file <path>        send a file
+/download <id>      fetch an attachment you skipped
+/rooms              list everything you have open
+/members            list the members of this room
+/contacts           list the people you have saved
+/add <key> [name]   save someone as a contact
+/whoami             show your public key, so others can reach you
+/close /reopen      open or close this room to new members (owner only)
+/transfer <who>     hand the room to someone else (owner only)
+/remove <who>       remove a member and keep them out (owner only)
+/allow <who>        let a removed member back in (owner only)
+/help               show this list
+/quit               leave and exit
 ```
 
-Tab completes commands. Ctrl+C quits.
+Several rooms and DMs stay open at once. **Shift+Tab** moves between them,
+`/switch <name>` jumps directly, and the status line shows how many messages are
+waiting elsewhere. (Shift+Tab rather than Ctrl+N because the text input consumes
+every control chord except Ctrl+C — Ctrl+N would switch *and* type an "n".)
+
+Typing `/` opens a command menu that filters as you type; arrow keys move, Tab or
+Enter takes the highlighted command. Ctrl+C quits.
+
+The interface follows Claude Code rather than a full-screen terminal app. The
+transcript is written into your shell's own scrollback via Ink's `<Static>` and
+never repainted, so scrolling, selection and copy/paste keep working and a long
+room costs nothing to redraw. Only the prompt is live:
+
+```
+╭─────────────────────────────────────────────────────────╮
+│ ✻ Welcome to openchat                                   │
+│                                                         │
+│   end-to-end encrypted · no server · /help for commands │
+│                                                         │
+│   room: #design                                         │
+│   you:  ada (51400cd3)                                  │
+╰─────────────────────────────────────────────────────────╯
+
+  ⎿  bob joined
+20:06 ⏺ bob  got the invite — this is over the DHT, no server anywhere
+20:06 > that is the idea. offline members catch up on reconnect.
+╭──────────────────────────────────────────────────────────────────────╮
+│ > /me                                                                │
+╰──────────────────────────────────────────────────────────────────────╯
+  ❯ /members          list the members of this room
+  #design · ● 1 peer · ada         /help for commands · ctrl+c to quit
+```
+
+Your own messages echo behind a caret, anything that arrives is introduced by a
+dot in the sender's colour, and detail belonging to the line above — command
+output, an attachment's progress — hangs under an elbow.
 
 ## Security model
 
@@ -153,8 +345,12 @@ This is an MVP, and these are deliberate:
 - **Someone must be online to admit a newcomer.** Joining requires an existing
   writer to receive the join request and append it. If every member is offline,
   a new member waits.
-- **No forward secrecy.** One long-lived room key encrypts everything. Someone
-  who obtains it can read the room's whole history.
+- **No forward secrecy.** One long-lived key encrypts everything in a room or a
+  DM. Someone who obtains it can read that conversation's whole history.
+- **`/close` is enforced by clients, not by the log.** See [Rooms you
+  own](#rooms-you-own). `/remove` *is* enforced by the log.
+- **A DM partner can write into their own outbox freely.** That is the point,
+  but it means the only spam control in a DM is not giving out your key.
 - **`Room._refresh()` re-reads the entire message range** on every update and
   dedupes by id. That is fine for a room with a few thousand messages and is
   the first thing to make incremental if a room outgrows it.

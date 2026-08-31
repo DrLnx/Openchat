@@ -55,13 +55,15 @@ test('the UI renders a live room and paints messages as they arrive', async (t) 
   const app = render(React.createElement(App, { client: alice }))
   t.after(() => app.unmount())
 
-  await waitFor(async () => screen(app).includes('#design'), { message: 'room name in the status bar' })
+  await waitFor(async () => screen(app).includes('#design'), { message: 'the room to appear' })
 
   const initial = screen(app)
-  assert.match(initial, /#design/, 'status bar shows the room')
-  assert.match(initial, /ROOMS/, 'sidebar renders')
-  assert.match(initial, /MEMBERS/, 'member list renders')
-  assert.match(initial, /No messages yet/, 'empty state explains what to do')
+  assert.match(initial, /Welcome to openchat/, 'the banner is printed')
+  assert.match(initial, /#design/, 'the banner and status line name the room')
+  assert.match(initial, /\/help for commands/, 'the status line says how to get help')
+  // No full-screen panels: the transcript flows into the terminal's own
+  // scrollback, so there is no sidebar and no boxed chat pane.
+  assert.ok(!initial.includes('MEMBERS'), 'no sidebar')
 
   // Bob joins for real, over the swarm, and says something.
   await bob.joinRoom(room.invite)
@@ -72,8 +74,8 @@ test('the UI renders a live room and paints messages as they arrive', async (t) 
   })
 
   const withMessage = screen(app)
-  assert.ok(!withMessage.includes('No messages yet'), 'empty state cleared')
   assert.match(withMessage, /\d\d:\d\d/, 'messages are timestamped')
+  assert.match(withMessage, /⏺/, 'an arriving message is marked as incoming')
 })
 
 test('typing a message sends it; typing a slash command runs it', async (t) => {
@@ -93,6 +95,7 @@ test('typing a message sends it; typing a slash command runs it', async (t) => {
 
   await type(app, 'hello world')
   await waitFor(async () => screen(app).includes('hello world'), { message: 'the sent message' })
+  assert.match(screen(app), /> hello world/, 'your own message echoes behind a caret')
 
   await type(app, '/invite')
   await waitFor(async () => screen(app).includes('openchat1:'), { message: 'the invite output' })
@@ -103,6 +106,44 @@ test('typing a message sends it; typing a slash command runs it', async (t) => {
 
   await type(app, '/nope')
   await waitFor(async () => screen(app).includes('unknown command'), { message: 'the error notice' })
+  assert.match(screen(app), /✗ unknown command/, 'errors are marked')
+})
+
+test('typing a slash opens a command menu', async (t) => {
+  const testnet = await createTestDht()
+  const alice = await startClient(testnet.bootstrap)
+
+  t.after(async () => {
+    await alice.close()
+    await testnet.destroy()
+  })
+
+  await alice.createRoom('menu')
+  const app = render(React.createElement(App, { client: alice }))
+  t.after(() => app.unmount())
+
+  await waitFor(async () => screen(app).includes('#menu'), { message: 'the UI to start' })
+
+  // The menu lists matching commands with their help, and narrows as you type.
+  app.stdin.write('/')
+  await waitFor(async () => screen(app).includes('join a room from an invite string'), {
+    message: 'the command menu'
+  })
+  assert.match(screen(app), /print an invite for the current room/, 'every match is listed')
+
+  app.stdin.write('me')
+  await waitFor(
+    async () => {
+      const frame = app.lastFrame() || ''
+      return frame.includes('list the members of this room') && !frame.includes('leave and exit')
+    },
+    { message: 'the menu to narrow to /members' }
+  )
+
+  // Enter takes the highlighted command rather than sending "/me" as a message.
+  app.stdin.write('\r')
+  await waitFor(async () => screen(app).includes('(you)'), { message: '/members to run' })
+  assert.ok(!screen(app).includes('unknown command'), 'the partial command was never sent')
 })
 
 test('a sent file renders as an attachment, not as raw metadata', async (t) => {
@@ -128,7 +169,8 @@ test('a sent file renders as an attachment, not as raw metadata', async (t) => {
   await waitFor(async () => screen(app).includes('agenda.md'), { message: 'the attachment line' })
 
   const frame = screen(app)
-  assert.match(frame, /📎 agenda\.md/, 'rendered as an attachment')
+  assert.match(frame, /agenda\.md \(\d+B\)/, 'the attachment shows its name and size')
+  assert.match(frame, /⎿/, 'its state hangs under the message that announced it')
   assert.ok(!frame.includes('blobCoreKey'), 'raw metadata is not leaked into the transcript')
 })
 
@@ -147,6 +189,8 @@ test('the UI comes up with no rooms and says what to do', async (t) => {
 
   await sleep(200)
   const frame = screen(app)
-  assert.match(frame, /no room/, 'says there is no room')
-  assert.match(frame, /join <invite>/, 'tells you how to get one')
+  assert.match(frame, /Welcome to openchat/, 'the banner still prints')
+  assert.match(frame, /nothing open/, 'the banner says there is nothing open')
+  assert.match(frame, /\/dm <key>/, 'tells you how to reach someone')
+  assert.match(frame, /your key/, 'shows your key, which is how people reach you')
 })

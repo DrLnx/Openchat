@@ -41,6 +41,7 @@ export class Swarm extends EventEmitter {
     this._ownsDht = !!dht
     this.connections = new Set()
     this.topics = new Map()
+    this.destroyed = false
 
     this.swarm.on('connection', (connection, info) => {
       const remote = b4a.toString(connection.remotePublicKey, 'hex')
@@ -102,11 +103,50 @@ export class Swarm extends EventEmitter {
 
     // Surface announce failures rather than leaving an unhandled rejection.
     discovery.flushed().then(
-      () => this.emit('announced', id),
+      () => {
+        this.emit('announced', id)
+        this._chaseFirstPeer(id, discovery)
+      },
       (err) => this.emit('announce-error', id, err)
     )
 
     return discovery
+  }
+
+  /**
+   * Look the topic up again, a few times, if nobody turned up.
+   *
+   * Two people who join the same topic at the same moment each perform their
+   * lookup before the other has finished announcing, find nobody, and then wait
+   * for the next scheduled refresh — which is long enough to look like the
+   * feature is broken. This matters most for the two cases where simultaneous
+   * joins are normal: opening a DM, and two clients starting at once.
+   */
+  async _chaseFirstPeer (id, discovery) {
+    const startingPeers = this.peerCount
+    let delay = 1000
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await this._sleep(delay)
+      delay = Math.min(delay * 2, 8000)
+
+      if (this.destroyed || !this.topics.has(id)) return
+      if (this.peerCount > startingPeers) return
+
+      try {
+        await discovery.refresh()
+      } catch {
+        return // topic left, or the swarm is going away
+      }
+    }
+  }
+
+  /** Unref'd so a pending retry never keeps the process alive. */
+  _sleep (ms) {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms)
+      timer.unref?.()
+    })
   }
 
   async leave (topic) {
@@ -123,6 +163,7 @@ export class Swarm extends EventEmitter {
   }
 
   async destroy () {
+    this.destroyed = true
     for (const discovery of this.topics.values()) await discovery.destroy().catch(() => {})
     this.topics.clear()
     await this.swarm.destroy()

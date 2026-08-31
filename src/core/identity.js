@@ -5,7 +5,7 @@
 // backup story trivial — a BIP39 mnemonic of the seed restores the same
 // identity on another machine, and your messages keep the same author key.
 
-import { readFile, writeFile, mkdir, chmod } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, chmod, rename } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import b4a from 'b4a'
@@ -13,7 +13,6 @@ import * as bip39 from 'bip39'
 
 import { keyPairFromSeed } from './crypto-node.js'
 import { SEED_BYTES } from '../protocol/constants.js'
-import { configDir } from './store.js'
 
 const IDENTITY_VERSION = 1
 
@@ -45,26 +44,58 @@ export class Identity {
   }
 }
 
-export function identityPath (dir = configDir()) {
+export function identityPath (dir) {
   return path.join(dir, 'identity.json')
+}
+
+/** True when this profile has an identity already — i.e. it has been set up. */
+export async function hasIdentity (dir) {
+  try {
+    await readFile(identityPath(dir), 'utf8')
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**
  * Load the local identity, creating one on first run.
- * @param {{ dir?: string, nick?: string }} [opts]
+ * @param {{ dir: string, nick?: string }} opts
  */
 export async function loadIdentity (opts = {}) {
-  const dir = opts.dir || configDir()
+  const dir = opts.dir
+  if (!dir) throw new Error('loadIdentity needs a profile directory')
   const file = identityPath(dir)
 
+  let contents
   try {
-    const raw = JSON.parse(await readFile(file, 'utf8'))
+    contents = await readFile(file, 'utf8')
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err
+  }
+
+  if (contents !== undefined) {
+    // Never silently replace an identity: losing it means losing the ability to
+    // post as yourself, and no server can reissue it. Fail loudly and point at
+    // the recovery phrase instead.
+    let raw
+    try {
+      raw = JSON.parse(contents)
+    } catch {
+      throw new Error(
+        `${file} is not valid JSON. Do not delete it — if you have your recovery ` +
+        'phrase, move the file aside and run `openchat restore <phrase>`.'
+      )
+    }
+
     if (raw.v !== IDENTITY_VERSION) {
       throw new Error(`identity file is v${raw.v}, this build expects v${IDENTITY_VERSION}`)
     }
+    if (typeof raw.seed !== 'string' || !/^[0-9a-f]{64}$/i.test(raw.seed)) {
+      throw new Error(`${file} has no usable key. Restore with \`openchat restore <phrase>\`.`)
+    }
+
     return new Identity({ seed: b4a.from(raw.seed, 'hex'), nick: raw.nick })
-  } catch (err) {
-    if (err.code !== 'ENOENT') throw err
   }
 
   const identity = new Identity({ seed: b4a.from(randomBytes(SEED_BYTES)), nick: opts.nick })
@@ -72,10 +103,13 @@ export async function loadIdentity (opts = {}) {
   return identity
 }
 
-export async function saveIdentity (identity, dir = configDir()) {
+export async function saveIdentity (identity, dir) {
   await mkdir(dir, { recursive: true })
   const file = identityPath(dir)
-  await writeFile(file, JSON.stringify(identity.toJSON(), null, 2), { mode: 0o600 })
+
+  const temporary = `${file}.${process.pid}.tmp`
+  await writeFile(temporary, JSON.stringify(identity.toJSON(), null, 2), { mode: 0o600 })
+  await rename(temporary, file)
   // writeFile only applies `mode` when it creates the file; re-assert it so an
   // identity written before this rule existed gets locked down too.
   await chmod(file, 0o600)
@@ -89,7 +123,7 @@ export async function restoreFromMnemonic (mnemonic, opts = {}) {
 
   const seed = b4a.from(bip39.mnemonicToEntropy(normalized), 'hex')
   const identity = new Identity({ seed, nick: opts.nick })
-  await saveIdentity(identity, opts.dir || configDir())
+  await saveIdentity(identity, opts.dir)
   return identity
 }
 
