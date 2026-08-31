@@ -9,6 +9,11 @@ First release. Serverless, end-to-end encrypted chat for the terminal.
 
 ### Added
 
+- **One command.** `openchat` opens the app; rooms, invites, direct messages,
+  contacts and the rest are slash commands inside it. `--profile` is the only
+  flag, because which account you are is a property of the session you start.
+  A second surface would only be a second place for behaviour to drift.
+
 - **Group rooms** over Autobase: many writers, one causally ordered transcript,
   joined with an invite string. Offline members replay what they missed.
 - **Direct messages with no invite.** Ed25519 identities convert to X25519, so
@@ -18,12 +23,13 @@ First release. Serverless, end-to-end encrypted chat for the terminal.
 - **Room ownership** — close, reopen, transfer, and remove members. Control
   actions are verified against the current owner by every member's client.
 - **Profiles**: several independent accounts on one machine, one per terminal,
-  via `--profile` or `OPENCHAT_PROFILE`.
+  via `--profile` or `OPENCHAT_PROFILE`. `/profiles` lists them.
 - **Onboarding** for a new profile, including restoring an identity from its
   BIP39 recovery phrase.
 - **Attachments** over Hyperblobs: metadata in the log, bytes on demand, real
   progress, checksum verified on arrival.
 - **Contacts**, so a key can have a name.
+- `/backup`, so the recovery phrase is reachable from inside the app.
 - A terminal UI in the style of Claude Code: the transcript goes to your shell's
   own scrollback, with a command menu on `/`.
 - `npm run demo` — a guided tour of everything, on one machine, with no network.

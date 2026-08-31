@@ -18,6 +18,8 @@ export const COMMANDS = [
   { name: 'contacts', args: '', help: 'list the people you have saved' },
   { name: 'add', args: '<key> [name]', help: 'save someone as a contact' },
   { name: 'whoami', args: '', help: 'show your public key, so others can reach you' },
+  { name: 'backup', args: '', help: 'show your recovery phrase — the only way back to this identity' },
+  { name: 'profiles', args: '', help: 'list the accounts on this machine' },
   { name: 'close', args: '', help: 'close this room to new members (owner only)' },
   { name: 'reopen', args: '', help: 'let people join again (owner only)' },
   { name: 'transfer', args: '<key|name>', help: 'hand the room to someone else (owner only)' },

@@ -10,6 +10,7 @@ import os from 'node:os'
 
 import { helpText } from '../ui/model/commands.js'
 import { shortKey } from '../ui/model/format.js'
+import { listProfiles, currentProfile } from '../core/store.js'
 
 /**
  * @param {{ name: string, arg: string, args: string[] }} command
@@ -25,12 +26,31 @@ export async function runCommand (command, ctx) {
   switch (command.name) {
     case 'help':
       notice(helpText())
+      notice('There is a shell command for most of this too — `openchat --help`.')
       return
 
     case 'whoami':
       notice(`${client.identity.nick}\n${client.identity.publicKeyHex}`)
       notice('Anyone with that key can open a conversation with you.')
       return
+
+    case 'backup':
+      // The only copy. There is no server that can reissue it, so this needs
+      // to be reachable from inside the app rather than from a shell command.
+      notice('Recovery phrase for this identity:')
+      notice(client.identity.mnemonic)
+      notice('Anyone who has these words can post as you. Write them down offline.', 'warn')
+      return
+
+    case 'profiles': {
+      const [names, current] = await Promise.all([listProfiles(), currentProfile()])
+      const listed = names.length ? names : [current]
+      notice(listed
+        .map((name) => `${name === client.profile ? '▸' : ' '} ${name}`)
+        .join('\n'))
+      notice('Open another one in a second terminal: openchat --profile <name>')
+      return
+    }
 
     case 'invite': {
       const room = client.activeRoom

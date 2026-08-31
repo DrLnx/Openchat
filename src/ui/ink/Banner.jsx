@@ -22,7 +22,8 @@ export function Banner ({ room, self, profile }) {
         <Text color={ACCENT}>{MARKER.welcome}</Text> <Text bold>Welcome to openchat</Text>
       </Text>
       <Text> </Text>
-      <Text dimColor>  end-to-end encrypted · no server · /help for commands</Text>
+      <Text dimColor>  end-to-end encrypted · no server</Text>
+      <Text dimColor>  /help in here · openchat --help in a shell</Text>
       <Text> </Text>
       <Text dimColor>
         {'  here: '}

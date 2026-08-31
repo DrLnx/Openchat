@@ -435,12 +435,19 @@ export class Client extends EventEmitter {
       await target.setNick(nick)
     }
 
+    // This runs in the background, so its failures have to be caught here or
+    // they surface as an unhandled rejection. A one-shot command routinely
+    // exits before the introduction lands — `openchat room create` did exactly
+    // that, printing the invite and then crashing with "Autobase is closing" —
+    // so teardown is an expected outcome, not an error worth reporting.
+    const announce = () => introduce().catch((err) => {
+      if (target.closed || /clos(ing|ed)/i.test(err.message || '')) return
+      this.emit('notice', { level: 'warn', text: `could not announce your name: ${err.message}` })
+    })
+
     // A room needs us to be an admitted writer first; a DM never does.
-    if (target.waitForWritable) {
-      target.waitForWritable(60000).then(introduce, () => {})
-    } else {
-      introduce().catch(() => {})
-    }
+    if (target.waitForWritable) target.waitForWritable(60000).then(announce, () => {})
+    else announce()
   }
 
   _blobsFor (id, store, encryptionKey) {

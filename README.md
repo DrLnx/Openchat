@@ -79,37 +79,41 @@ npm link          # optional: puts `openchat` on your PATH
 Without `npm link`, run it as `node bin/openchat.js` wherever the docs below say
 `openchat`.
 
-## First run
+## Using it
 
 ```bash
 openchat
 ```
 
-That walks you through setting up an account — which here means generating a
-keypair, not signing up for anything — and shows a recovery phrase. Write it
-down: it is the only way back to your identity, and no server can reissue it.
+That is the whole command line. openchat is an app you sit inside, not something
+you drive one shell invocation at a time — rooms, invites, direct messages,
+contacts and everything else are slash commands in the app.
 
-Then, to talk to someone:
+On first run it sets up an account, which here means generating a keypair. There
+is nothing to sign up for and no server to sign up to. It shows you a recovery
+phrase; write it down, because it is the only way back to that identity and
+`/backup` is the only other place you will see it.
 
-```bash
-openchat room create design-team     # prints an invite string
+Then, inside the app:
+
+```
+/new design-team         open a room you own
+/invite                  print its invite string — share this out of band
+/join openchat1:AUEp…    join a room someone invited you to
+/dm 03d35f4c5d0f36a0…    message someone directly, using only their key
+/help                    everything else
 ```
 
-Send that invite **out of band** — a call, a QR code, a channel you already
-trust. Anyone holding it is a member. On their machine:
-
-```bash
-openchat room join openchat1:AUEp_UIOSh...
-openchat                             # open the app
-```
-
-One of you has to be online while the other joins: admitting a member is
-something an existing member does, and there is no server to do it for you.
+Send an invite **out of band** — a call, a QR code, a channel you already trust.
+Anyone holding it is a member. One of you has to be online while the other
+joins: admitting a member is something an existing member does, and there is no
+server to do it for you.
 
 ## Two accounts, two terminals
 
-Profiles are separate accounts on one machine — different keys, different
-storage, different rooms, different contacts. One per terminal works well.
+An account is a *profile*: its own keys, storage, rooms and contacts. Which one
+you are is a property of the session you start, so it is the one flag openchat
+takes.
 
 ```bash
 # terminal one
@@ -119,19 +123,12 @@ openchat --profile work
 openchat --profile personal
 ```
 
-Run `openchat whoami --profile work` to get its public key, then `/dm <key>` in
-the other terminal. No invite is involved; see [Direct
-messages](#direct-messages).
+`/whoami` in one gives you its public key; `/dm <key>` in the other opens a
+conversation. No invite is involved — see [Direct messages](#direct-messages).
 
-```bash
-openchat profiles                 # list the accounts on this machine
-openchat login personal           # change which one is the default
-openchat logout                   # back to the default profile
-```
-
-`OPENCHAT_PROFILE` does the same job as `--profile`, so a terminal can be pinned
-to an account by exporting it once. Nothing is shared between profiles, and
-`logout` only changes which one is current — it deletes nothing.
+`/profiles` lists the accounts on this machine. `OPENCHAT_PROFILE` does the same
+job as `--profile`, so a terminal can be pinned to an account by exporting it
+once. Nothing is shared between profiles.
 
 ## Trying it without a second machine
 
@@ -157,8 +154,8 @@ get it:
 - **A room you share.** `/members` lists everyone's key, and you can DM any of
   them. In practice this is how most conversations start.
 - **A contact you saved.** `/add <key> <name>`, then `/dm <name>` from then on.
-- **A key they gave you.** `openchat whoami` prints yours; hand it over however
-  you like.
+- **A key they gave you.** `/whoami` prints yours; hand it over however you
+  like.
 
 Nobody can enumerate users, and nobody can cold-message you without your key.
 
@@ -169,8 +166,8 @@ X25519, so each side runs Diffie-Hellman against the other's *public* key and
 independently derives the same secret. Nothing is transmitted and nothing is
 negotiated:
 
-```bash
-node bin/openchat.js dm 03d35f4c5d0f36a0…    # or a contact name
+```
+/dm 03d35f4c5d0f36a0…          # or a contact name, once you have saved one
 ```
 
 From that shared secret openchat derives the discovery topic *and* the
@@ -211,23 +208,14 @@ the invite again. It is not a cryptographic seal.
 ## Commands
 
 ```
-openchat                          launch the chat UI (resumes your conversations)
-openchat room create <name>       create a room and print its invite
-openchat room join <invite>       join a room from an invite string
-openchat rooms                    list rooms you have joined
-openchat dm <key|contact>         open a direct conversation
-openchat contacts [add|remove]    manage saved contacts
-openchat whoami                   show your identity and public key
-openchat profiles                 list the accounts on this machine
-openchat login [name]             switch profile
-openchat logout                   switch back to the default profile
-openchat backup                   print the recovery phrase for your identity
-openchat restore <phrase…>        restore an identity from a recovery phrase
-
-  --profile <name>                act as another account for one command
+openchat                     open the app
+openchat --profile <name>    open it as a different account on this machine
+openchat --help              this message
+openchat --version           print the version
 ```
 
-Inside the UI:
+That is the entire command line. Everything else is a slash command inside the
+app:
 
 ```
 /dm <key|name>      message someone directly — no invite needed
@@ -243,6 +231,8 @@ Inside the UI:
 /contacts           list the people you have saved
 /add <key> [name]   save someone as a contact
 /whoami             show your public key, so others can reach you
+/backup             show your recovery phrase
+/profiles           list the accounts on this machine
 /close /reopen      open or close this room to new members (owner only)
 /transfer <who>     hand the room to someone else (owner only)
 /remove <who>       remove a member and keep them out (owner only)
@@ -313,8 +303,8 @@ group chat you forgot was public — is a member.
 
 **Identity** is an Ed25519 keypair derived from a 32-byte seed stored at
 `~/.openchat/identity.json` with `0600` permissions. Only the seed is saved; the
-keypair is re-derived on load, which is why `openchat backup` can hand you a
-BIP39 phrase that restores the same identity elsewhere. That phrase is
+keypair is re-derived on load, which is why `/backup` can hand you a BIP39
+phrase that restores the same identity elsewhere. That phrase is
 equivalent to your identity — anyone with it can post as you.
 
 **Every message is signed and encrypted.** The envelope
