@@ -143,24 +143,28 @@ export async function runCommand (command, ctx) {
 
     case 'close': {
       await client.controlRoom('close')
+      ctx.refresh?.()
       notice('room closed — existing members can still talk, but nobody new can join')
       return
     }
 
     case 'reopen': {
       await client.controlRoom('reopen')
+      ctx.refresh?.()
       notice('room reopened — the invite admits people again')
       return
     }
 
     case 'transfer': {
       const { subject } = await client.controlRoom('transfer', command.arg)
+      ctx.refresh?.()
       notice(`${shortKey(subject, 16)} now owns this room`)
       return
     }
 
     case 'remove': {
       const { subject } = await client.controlRoom('remove', command.arg)
+      ctx.refresh?.()
       notice(`removed ${shortKey(subject, 16)} from the room`)
       return
     }

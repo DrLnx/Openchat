@@ -30,9 +30,9 @@ export function StatusLine ({ room, rooms = [], profile, connection, self, writa
       </Text>
       <Text dimColor>
         {elsewhere > 0
-          ? <Text color={ACCENT}>{elsewhere} unread elsewhere · </Text>
+          ? <Text color={ACCENT}>{elsewhere} unread · </Text>
           : ''}
-        {others > 0 ? 'ctrl+n switches · ' : ''}/help · ctrl+c to quit
+        {others > 0 ? 'shift+tab · ' : ''}/help · ctrl+c
       </Text>
     </Box>
   )

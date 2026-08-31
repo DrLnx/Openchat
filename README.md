@@ -16,6 +16,21 @@ encrypted append-only log between themselves. Built on the Holepunch stack —
 needing an install. See [The browser harness](#the-browser-harness) for what it
 does and does not simulate.
 
+## Trying it without a second machine
+
+```bash
+npm install && npm run demo
+```
+
+That runs a guided tour on one machine with no network: two real profiles, two
+real clients, the real Ink UI, and a local DHT. It opens a room, joins it from
+the second account, sends a DM derived from nothing but a public key, switches
+between conversations, closes the room and watches a valid invite get refused,
+transfers ownership, and sends a file. Every frame it prints came out of the
+actual app.
+
+`npm test` runs the same machinery as assertions — 50 tests, no network needed.
+
 ## Finding people
 
 There is no global user directory, because there is no server to hold one. You
@@ -70,6 +85,16 @@ machine:
 
 ```bash
 node bin/openchat.js room join openchat1:AUEp_UIOSh...
+```
+
+Both terminals on one machine works too — that is what profiles are for:
+
+```bash
+# terminal one
+node bin/openchat.js --profile work
+
+# terminal two
+node bin/openchat.js --profile personal
 ```
 
 Then either of you runs `openchat` to open the chat UI:
@@ -180,9 +205,10 @@ Inside the UI:
 /quit               leave and exit
 ```
 
-Several rooms and DMs stay open at once. **Ctrl+N** and **Ctrl+P** move between
-them, `/switch <name>` jumps directly, and the status line shows how many
-messages are waiting elsewhere.
+Several rooms and DMs stay open at once. **Shift+Tab** moves between them,
+`/switch <name>` jumps directly, and the status line shows how many messages are
+waiting elsewhere. (Shift+Tab rather than Ctrl+N because the text input consumes
+every control chord except Ctrl+C — Ctrl+N would switch *and* type an "n".)
 
 Typing `/` opens a command menu that filters as you type; arrow keys move, Tab or
 Enter takes the highlighted command. Ctrl+C quits.

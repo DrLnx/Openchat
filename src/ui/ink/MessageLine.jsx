@@ -2,7 +2,7 @@ import React from 'react'
 import { Box, Text } from 'ink'
 
 import { FileMessage } from './FileMessage.jsx'
-import { MARKER } from './theme.js'
+import { ACCENT, MARKER } from './theme.js'
 import {
   colorForAuthor, displayName, formatBytes, formatTime, formatSystemEvent, formatNickChange
 } from '../model/format.js'
@@ -16,6 +16,15 @@ import {
  * left edge stays a single marker column so the log is scannable.
  */
 export function MessageLine ({ entry, members, attachments, self }) {
+  if (entry.kind === 'divider') {
+    return (
+      <Box marginTop={1}>
+        <Text color={ACCENT}>── {entry.label} </Text>
+        <Text dimColor>────────────────────────────────</Text>
+      </Box>
+    )
+  }
+
   if (entry.kind === 'notice') return <Notice notice={entry.notice} />
 
   const message = entry.message

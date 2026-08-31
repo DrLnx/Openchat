@@ -192,5 +192,5 @@ test('the UI comes up with no rooms and says what to do', async (t) => {
   assert.match(frame, /Welcome to openchat/, 'the banner still prints')
   assert.match(frame, /nothing open/, 'the banner says there is nothing open')
   assert.match(frame, /\/dm <key>/, 'tells you how to reach someone')
-  assert.match(frame, /key:/, 'shows your key, which is how people reach you')
+  assert.match(frame, /your key/, 'shows your key, which is how people reach you')
 })

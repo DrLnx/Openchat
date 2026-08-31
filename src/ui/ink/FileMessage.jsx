@@ -28,7 +28,11 @@ export function FileMessage ({ message, attachment }) {
   const detail = status === 'downloading'
     ? <Bar progress={attachment.progress || 0} />
     : status === 'ready'
-      ? <Text dimColor>{attachment.path ? `saved to ${attachment.path}` : 'received'}</Text>
+      ? <Text dimColor>{
+          attachment.sent
+            ? 'sent'
+            : attachment.path ? `saved to ${attachment.path}` : 'received'
+        }</Text>
       : status === 'failed'
         ? <Text color="red">failed: {attachment.error}</Text>
         : status === 'available'

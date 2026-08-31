@@ -34,10 +34,8 @@ export function Banner ({ room, self, profile }) {
         {'  you:  '}{self?.nick || shortKey(self?.publicKey)}
         {profile && profile !== 'default' ? ` · profile ${profile}` : ''}
       </Text>
-      <Text dimColor>
-        {'  key:  '}{self?.publicKey || ''}
-      </Text>
-      <Text dimColor>{'        give someone that key and they can message you'}</Text>
+      <Text dimColor>{'  your key — share it and people can message you directly:'}</Text>
+      <Text dimColor>{'  '}<Text color={ACCENT}>{self?.publicKey || ''}</Text></Text>
     </Box>
   )
 }

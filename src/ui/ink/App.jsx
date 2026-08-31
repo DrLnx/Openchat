@@ -8,8 +8,8 @@
 // scrollback, selection and copy/paste all keep working, and a long room does
 // not cost a full repaint on every keystroke.
 
-import React, { useEffect, useReducer, useCallback, useState, useMemo } from 'react'
-import { Box, Static, useInput } from 'ink'
+import React, { useEffect, useReducer, useCallback, useState, useMemo, useRef } from 'react'
+import { Box, Static } from 'ink'
 
 import { Banner } from './Banner.jsx'
 import { MessageLine } from './MessageLine.jsx'
@@ -136,14 +136,6 @@ export function App ({ client, profile }) {
     }
   }, [client, notice, refresh])
 
-  // Ctrl+N and Ctrl+P move between everything you have open, so a second room
-  // or a DM does not need a command to reach.
-  useInput((input, key) => {
-    if (!key.ctrl) return
-    if (input === 'n') client.cycle(1)
-    else if (input === 'p') client.cycle(-1)
-  })
-
   useEffect(() => {
     if (!exiting) return
     const timer = setTimeout(() => process.exit(0), 50)
@@ -166,6 +158,39 @@ export function App ({ client, profile }) {
     return { settled: entries.slice(0, cut), live: entries.slice(cut) }
   }, [entries, state.attachments])
 
+  // <Static> tracks what it has already printed by *index* (`items.slice(n)`),
+  // so its list has to be append-only. The transcript is sorted by time, and a
+  // message can arrive with a timestamp that sorts before something already on
+  // screen — which would shift every later index and reprint the wrong lines.
+  // Keep a committed list that only ever grows at the end, and hand Static that.
+  const committed = useRef([])
+  const committedKeys = useRef(new Set())
+
+  // Switching conversation cannot un-print what is already in the scrollback —
+  // Static has no way to retract a line, and a terminal log should not pretend
+  // otherwise. Mark the switch instead and carry on appending, the way moving
+  // between directories leaves the previous output above you.
+  const conversationId = state.room?.key ?? null
+  const shownConversation = useRef(null)
+
+  if (shownConversation.current !== conversationId && conversationId) {
+    const previous = shownConversation.current
+    shownConversation.current = conversationId
+    if (previous) {
+      committed.current.push({
+        kind: 'divider',
+        key: `divider:${previous}:${conversationId}:${committed.current.length}`,
+        label: state.room.kind === 'dm' ? `@${state.room.name}` : `#${state.room.name}`
+      })
+    }
+  }
+
+  for (const entry of settled) {
+    if (committedKeys.current.has(entry.key)) continue
+    committedKeys.current.add(entry.key)
+    committed.current.push(entry)
+  }
+
   const renderLine = useCallback((entry) => (
     <MessageLine
       key={entry.key}
@@ -178,7 +203,7 @@ export function App ({ client, profile }) {
 
   return (
     <Box flexDirection="column">
-      <Static items={loaded ? [{ key: '__banner__' }, ...settled] : []}>
+      <Static items={loaded ? [{ key: '__banner__' }, ...committed.current] : []}>
         {(entry) => entry.key === '__banner__'
           ? <Banner key="__banner__" room={state.room} self={state.self} profile={profile} />
           : renderLine(entry)}
@@ -190,6 +215,7 @@ export function App ({ client, profile }) {
 
       <InputBar
         onSubmit={submit}
+        onCycle={(step) => client.cycle(step)}
         disabled={busy || exiting}
         placeholder={state.room ? 'message, or / for commands' : '/dm <key> or /new <name> to get started'}
       />

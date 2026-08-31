@@ -7,8 +7,6 @@
 //   npm run record
 
 import React from 'react'
-import { render as inkRender } from 'ink'
-import { EventEmitter } from 'node:events'
 import { mkdtemp, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -17,55 +15,15 @@ import createTestnet from 'hyperdht/testnet.js'
 
 import { App } from '../src/ui/ink/App.jsx'
 import { Client } from '../src/core/client.js'
+import { renderApp, sleep, stripAnsi } from './lib/ink-harness.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = path.join(root, 'web/demo/transcript.json')
 const HOST = '127.0.0.1'
 
-// Narrow enough to stay legible on a phone when the harness replays these
-// frames. ink-testing-library hard-codes 100 columns, so drive Ink directly.
-const COLUMNS = 72
-
 const frames = []
 
-class RecordingStdout extends EventEmitter {
-  columns = COLUMNS
-  lastFrame = ''
-  write = (frame) => { this.lastFrame = frame }
-}
-
-class RecordingStdin extends EventEmitter {
-  isTTY = true
-  data = null
-
-  // Ink drains stdin with `while ((chunk = stdin.read()) !== null)`, so this
-  // has to hand the keystroke over exactly once.
-  read = () => {
-    const pending = this.data
-    this.data = null
-    return pending ?? null
-  }
-
-  write = (data) => {
-    this.data = data
-    this.emit('readable')
-    this.emit('data', data)
-  }
-
-  setEncoding () {}
-  setRawMode () {}
-  resume () {}
-  pause () {}
-  ref () {}
-  unref () {}
-}
-
-function render (node) {
-  const stdout = new RecordingStdout()
-  const stdin = new RecordingStdin()
-  const instance = inkRender(node, { stdout, stdin, debug: true, exitOnCtrlC: false, patchConsole: false })
-  return { stdout, stdin, unmount: () => instance.unmount(), lastFrame: () => stdout.lastFrame }
-}
+const render = (node) => renderApp(node)
 
 async function main () {
   const testnet = await createTestnet(3, { host: HOST })
@@ -85,7 +43,7 @@ async function main () {
   await bob.sendText('got the invite — this is over the DHT, no server anywhere')
   await settle(app, "Bob's message arrives, decrypted and verified.")
 
-  await type(app, 'that is the idea. offline members catch up on reconnect.')
+  await app.type( 'that is the idea. offline members catch up on reconnect.')
   await settle(app, 'Alice replies. Her message is sealed before it touches the wire.')
 
   // Capture the command menu open, before it is completed.
@@ -96,13 +54,13 @@ async function main () {
 
   const file = path.join(await mkdtemp(path.join(tmpdir(), 'openchat-demo-')), 'protocol-notes.md')
   await writeFile(file, '# openchat\n\ntopic is public. the key never is.\n')
-  await type(app, `/file ${file}`)
+  await app.type( `/file ${file}`)
   await settle(app, 'A file is sent as metadata; the bytes follow from a blob core.')
 
-  await type(app, '/invite')
+  await app.type( '/invite')
   await settle(app, '/invite prints the string that admits the next member.')
 
-  await type(app, '/nope')
+  await app.type( '/nope')
   await settle(app, 'An unknown command is reported without sending it to the room.')
 
   app.unmount()
@@ -123,26 +81,10 @@ async function startClient (bootstrap) {
   return client
 }
 
-async function type (app, line) {
-  app.stdin.write(line)
-  await sleep(80)
-  app.stdin.write('\r')
-  await sleep(80)
-}
-
 async function settle (app, caption) {
   await sleep(1200)
   const frame = app.lastFrame() || ''
   frames.push({ caption, frame: stripAnsi(frame) })
-}
-
-function stripAnsi (value) {
-  // eslint-disable-next-line no-control-regex
-  return value.replace(/\[[0-9;]*[A-Za-z]/g, '')
-}
-
-function sleep (ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 await main()

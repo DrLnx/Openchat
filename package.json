@@ -22,7 +22,8 @@
     "test": "node --import ./scripts/jsx-register.js --test --test-concurrency=1 \"test/**/*.test.js\"",
     "test:unit": "node --import ./scripts/jsx-register.js --test \"test/unit/*.test.js\"",
     "record": "node scripts/record-demo.js",
-    "start": "node bin/openchat.js"
+    "start": "node bin/openchat.js",
+    "demo": "node --import ./scripts/jsx-register.js scripts/demo-tour.js"
   },
   "dependencies": {
     "@noble/ed25519": "^3.2.0",

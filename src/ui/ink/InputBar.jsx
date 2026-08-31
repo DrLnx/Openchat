@@ -13,10 +13,18 @@ import { matchCommands } from '../model/commands.js'
  * command instead of sending — running a half-typed `/mem` as a chat message is
  * never what anyone meant.
  */
-export function InputBar ({ onSubmit, disabled, placeholder }) {
+export function InputBar ({ onSubmit, onCycle, disabled, placeholder }) {
   const [value, setValue] = useState('')
   const [selected, setSelected] = useState(0)
   const [dismissed, setDismissed] = useState(false)
+
+  // Shift+Tab is the switch key rather than the more conventional Ctrl+N for a
+  // concrete reason: ink-text-input ignores exactly five things — the arrows,
+  // tab, shift+tab and ctrl+c — and inserts every other chord as a character.
+  // Ctrl+N would switch conversation *and* type an "n" into your message. Its
+  // handler also runs before ours (React runs child effects first), so we
+  // cannot intercept the edit either. A binding that types junk is worse than
+  // a less familiar one that does not.
 
   const matches = dismissed ? [] : matchCommands(value)
   const open = matches.length > 0
@@ -27,6 +35,12 @@ export function InputBar ({ onSubmit, disabled, placeholder }) {
   }, [matches.length, selected])
 
   useInput((input, key) => {
+    // Shift+Tab is the reliable binding — the text input drops it untouched.
+    if (key.shift && key.tab) {
+      onCycle?.(1)
+      return
+    }
+
     if (!open) {
       if (key.escape) setDismissed(true)
       return

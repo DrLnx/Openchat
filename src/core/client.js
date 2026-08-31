@@ -117,9 +117,19 @@ export class Client extends EventEmitter {
 
   switchTo (id) {
     if (!this.conversations.has(id)) throw new Error('no such conversation')
+    this._setActive(id)
+    return this.conversations.get(id)
+  }
+
+  /**
+   * Every path that changes which conversation is active goes through here.
+   * Creating a room or opening a DM switches you into it just as much as
+   * `switchTo` does, and the UI has to hear about all of them — not only the
+   * ones that happen to be followed by a command calling refresh.
+   */
+  _setActive (id) {
     this.activeId = id
     this.emit('switched', id)
-    return this.conversations.get(id)
   }
 
   /** Cycle to the next conversation — what Ctrl+N is wired to. */
@@ -170,7 +180,7 @@ export class Client extends EventEmitter {
     const room = await createRoom({ store: this.store, identity: this.identity, name })
     await this._adoptRoom(room)
     await this._rememberRoom(room)
-    this.activeId = room.keyHex
+    this._setActive(room.keyHex)
     return room
   }
 
@@ -180,7 +190,7 @@ export class Client extends EventEmitter {
 
     const existing = this.conversations.get(keyHex)
     if (existing) {
-      this.activeId = keyHex
+      this._setActive(keyHex)
       return existing.room
     }
 
@@ -194,7 +204,7 @@ export class Client extends EventEmitter {
 
     await this._adoptRoom(room)
     await this._rememberRoom(room)
-    this.activeId = room.keyHex
+    this._setActive(room.keyHex)
 
     await room.requestJoin()
     if (wait) await room.waitForWritable()
@@ -227,7 +237,7 @@ export class Client extends EventEmitter {
 
     const id = `dm:${peerKey}`
     if (this.conversations.has(id)) {
-      this.activeId = id
+      this._setActive(id)
       return this.conversations.get(id).channel
     }
 
@@ -241,7 +251,7 @@ export class Client extends EventEmitter {
 
     await rememberDm({ key: peerKey, name: channel.peerName, outbox: channel.outboxKey }, this.dir)
     this.config = await readConfig(this.dir)
-    this.activeId = id
+    this._setActive(id)
     return channel
   }
 
@@ -312,7 +322,7 @@ export class Client extends EventEmitter {
 
     // We already have the bytes — mark it complete so our own attachment does
     // not render as something still waiting to be fetched.
-    this.emit('attachment', { id: message.id, status: 'ready', progress: 1, path: filePath })
+    this.emit('attachment', { id: message.id, status: 'ready', progress: 1, path: filePath, sent: true })
     return message
   }
 
@@ -369,6 +379,7 @@ export class Client extends EventEmitter {
     })
 
     await room.attachSwarm(this.swarm)
+    this._announceNick(room)
     return room
   }
 
@@ -399,7 +410,37 @@ export class Client extends EventEmitter {
     channel.on('error', (err) => this.emit('notice', { level: 'error', text: err.message }))
 
     await channel.attachSwarm(this.swarm)
+    this._announceNick(channel)
     return channel
+  }
+
+  /**
+   * Say what you are called, once per conversation.
+   *
+   * Without this a member only ever has your key: `setNick` publishes into the
+   * conversation you are in, so a nick chosen before joining anything, or set
+   * in another room, never reaches these people. Runs when we can actually
+   * write, and skips if we have already introduced ourselves here.
+   */
+  _announceNick (target) {
+    const nick = this.identity.nick
+    if (!nick) return
+
+    const introduce = async () => {
+      if (target.closed) return
+      const already = target.messages.some(
+        (m) => m.type === 'nick' && m.author === this.identity.publicKeyHex && m.nick === nick
+      )
+      if (already) return
+      await target.setNick(nick)
+    }
+
+    // A room needs us to be an admitted writer first; a DM never does.
+    if (target.waitForWritable) {
+      target.waitForWritable(60000).then(introduce, () => {})
+    } else {
+      introduce().catch(() => {})
+    }
   }
 
   _blobsFor (id, store, encryptionKey) {
