@@ -9,6 +9,7 @@ import { App } from './App.jsx'
 import { Client } from '../../core/client.js'
 import { Identity, saveIdentity, restoreFromMnemonic, loadIdentity } from '../../core/identity.js'
 import { readConfig, writeConfig, setCurrentProfile } from '../../core/store.js'
+import { onShutdown } from '../../core/shutdown.js'
 import { SEED_BYTES } from '../../protocol/constants.js'
 import backend from '../../core/crypto-node.js'
 
@@ -39,7 +40,11 @@ export function Root ({ profile, dir, needsOnboarding, bootstrap, host }) {
   // cores outlive the UI — the process simply never exits.
   useEffect(() => {
     if (!client) return
-    return () => { client.close().catch(() => {}) }
+    const release = onShutdown(() => client.close())
+    return () => {
+      release()
+      client.close().catch(() => {})
+    }
   }, [client])
 
   const onDone = useCallback(async ({ mode, nick, phrase }) => {
@@ -90,8 +95,8 @@ export function Root ({ profile, dir, needsOnboarding, bootstrap, host }) {
 
   if (phase === 'failed') {
     return (
-      <Box flexDirection="column" paddingX={1}>
-        <Text color="red">openchat could not start: {error}</Text>
+      <Box flexDirection='column' paddingX={1}>
+        <Text color='red'>openchat could not start: {error}</Text>
       </Box>
     )
   }

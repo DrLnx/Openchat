@@ -20,8 +20,8 @@ export const BLOCK_TYPE = { MESSAGE: 0, JOIN: 1, CONTROL: 2 }
 export const BLOCK_TYPE_NAME = { 0: 'message', 1: 'join', 2: 'control' }
 
 /** Things the room's owner can do. Append only — never renumber. */
-export const CONTROL_ACTION = { close: 0, reopen: 1, transfer: 2, remove: 3 }
-export const CONTROL_ACTION_NAME = { 0: 'close', 1: 'reopen', 2: 'transfer', 3: 'remove' }
+export const CONTROL_ACTION = { close: 0, reopen: 1, transfer: 2, remove: 3, allow: 4 }
+export const CONTROL_ACTION_NAME = { 0: 'close', 1: 'reopen', 2: 'transfer', 3: 'remove', 4: 'allow' }
 
 /** Signed by the joiner's identity key to prove the writer core is theirs. */
 export const JOIN_CONTEXT = b4a.from('openchat:join:v1', 'ascii')
@@ -146,6 +146,7 @@ export function controlChallenge ({ action, subject, ts }) {
 // close to display order; `protocol/order.js` still has the final say.
 export const MESSAGE_PREFIX = 'msg:'
 export const WRITER_PREFIX = 'writer:'
+export const REMOVED_PREFIX = 'removed:'
 export const META_PREFIX = 'meta:'
 
 export const META = {
@@ -160,4 +161,13 @@ export function messageKey ({ clock, id }) {
 
 export function writerRecordKey (authorHex) {
   return `${WRITER_PREFIX}${authorHex}`
+}
+
+/**
+ * Removal has to outlive the act of removing. Without a record in the log, a
+ * removed member simply re-announces their join — they still hold the invite —
+ * and any honest member relays them straight back in.
+ */
+export function removedRecordKey (authorHex) {
+  return `${REMOVED_PREFIX}${authorHex}`
 }

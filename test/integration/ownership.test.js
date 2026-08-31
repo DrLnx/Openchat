@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 
 import { createRoom, openRoom } from '../../src/core/room.js'
 import { decodeInvite } from '../../src/protocol/invite.js'
-import { createPeer, createTestDht, waitForMessage, waitFor } from '../helpers.js'
+import { createPeer, createTestDht, waitForMessage, waitFor, sleep } from '../helpers.js'
 
 async function pair (t) {
   const testnet = await createTestDht()
@@ -52,7 +52,7 @@ test('the creator owns the room, and everyone agrees who that is', async (t) => 
   assert.ok(hosted.isOwner, 'alice sees herself as owner')
 
   await waitFor(async () => guest.owner === alice.identity.publicKeyHex, {
-    message: "bob to learn who owns the room"
+    message: 'bob to learn who owns the room'
   })
   assert.ok(!guest.isOwner, 'bob does not think he owns it')
 })
@@ -165,4 +165,36 @@ test('a removed member cannot post any more', async (t) => {
 
   // The history he wrote while a member is still there — removal is not erasure.
   assert.ok(hosted.messages.some((m) => m.body === 'before the removal'))
+})
+
+test('a removed member cannot simply rejoin with the invite they still hold', async (t) => {
+  const { bob, hosted, guest } = await pair(t)
+
+  await hosted.control('remove', bob.identity.publicKeyHex)
+  await waitFor(async () => !hosted.members.includes(bob.identity.publicKeyHex), {
+    message: 'the removal to apply'
+  })
+
+  // Bob still has a perfectly valid invite and a signed join block. Removal is
+  // worth nothing if asking again puts him straight back in.
+  await guest.requestJoin()
+  await sleep(6000)
+
+  assert.ok(
+    !hosted.members.includes(bob.identity.publicKeyHex),
+    'a removed member rejoined — removal must outlive the act of removing'
+  )
+  assert.ok(hosted.removedMembers.includes(bob.identity.publicKeyHex), 'the ban is recorded')
+
+  // The owner can change their mind.
+  await hosted.control('allow', bob.identity.publicKeyHex)
+  await waitFor(async () => !hosted.removedMembers.includes(bob.identity.publicKeyHex), {
+    message: 'the ban to lift'
+  })
+
+  await guest.requestJoin()
+  await waitFor(async () => hosted.members.includes(bob.identity.publicKeyHex), {
+    message: 'bob to be readmitted after /allow',
+    timeout: 30000
+  })
 })

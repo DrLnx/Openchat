@@ -16,17 +16,17 @@ export function StatusLine ({ room, rooms = [], profile, connection, self, writa
   const others = rooms.length - (room ? 1 : 0)
 
   return (
-    <Box paddingX={2} justifyContent="space-between">
+    <Box paddingX={2} justifyContent='space-between'>
       <Text dimColor>
         {room
           ? <Text color={ACCENT}>{room.kind === 'dm' ? '@' : '#'}{room.name}</Text>
           : 'nothing open'}
-        {room?.closed ? <Text color="yellow"> closed</Text> : ''}
+        {room?.closed ? <Text color='yellow'> closed</Text> : ''}
         {' · '}
         <Text color={STATE_COLOR[connection.state] || 'gray'}>●</Text>
         {` ${peers} · ${self?.nick || shortKey(self?.publicKey)}`}
         {profile && profile !== 'default' ? <Text color={ACCENT}> · {profile}</Text> : ''}
-        {room && !writable ? <Text color="yellow"> · waiting to be admitted</Text> : ''}
+        {room && !writable ? <Text color='yellow'> · waiting to be admitted</Text> : ''}
       </Text>
       <Text dimColor>
         {elsewhere > 0

@@ -20,7 +20,7 @@ function Choose ({ options, onSelect }) {
   })
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection='column' marginTop={1}>
       {options.map((option, i) => (
         <Text key={option.value} color={i === index ? ACCENT : undefined} dimColor={i !== index}>
           {i === index ? `${MARKER.selected} ` : '  '}{option.label}
@@ -32,11 +32,11 @@ function Choose ({ options, onSelect }) {
 
 function Frame ({ title, children }) {
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={ACCENT} paddingX={1} marginBottom={1}>
+    <Box flexDirection='column' borderStyle='round' borderColor={ACCENT} paddingX={1} marginBottom={1}>
       <Text>
         <Text color={ACCENT}>{MARKER.welcome}</Text> <Text bold>{title}</Text>
       </Text>
-      <Box flexDirection="column" marginTop={1}>{children}</Box>
+      <Box flexDirection='column' marginTop={1}>{children}</Box>
     </Box>
   )
 }
@@ -63,11 +63,11 @@ export function Onboarding ({ profile, onDone, pending, error, onAcknowledge }) 
 
   if (step === 'saved') {
     return (
-      <Frame title="Save your recovery phrase">
+      <Frame title='Save your recovery phrase'>
         <Text dimColor>These 24 words are your identity. Anyone who has them can post as</Text>
         <Text dimColor>you, and without them a lost machine means a lost account. There is</Text>
         <Text dimColor>no server that can reset it for you.</Text>
-        <Box marginY={1} paddingX={1} borderStyle="round" borderColor="gray">
+        <Box marginY={1} paddingX={1} borderStyle='round' borderColor='gray'>
           <Text color={ACCENT}>{pending.phrase}</Text>
         </Box>
         <Text dimColor>Write them down somewhere offline, then press enter to continue.</Text>
@@ -96,7 +96,7 @@ export function Onboarding ({ profile, onDone, pending, error, onAcknowledge }) 
 
   if (step === 'nick') {
     return (
-      <Frame title="Pick a display name">
+      <Frame title='Pick a display name'>
         <Text dimColor>What people in a room see. You can change it later with /nick.</Text>
         <Box marginTop={1}>
           <Text color={ACCENT}>{'> '}</Text>
@@ -108,16 +108,16 @@ export function Onboarding ({ profile, onDone, pending, error, onAcknowledge }) 
               if (!name) return
               onDone({ mode: 'create', nick: name })
             }}
-            placeholder="ada"
+            placeholder='ada'
           />
         </Box>
-        {error && <Text color="red">{error}</Text>}
+        {error && <Text color='red'>{error}</Text>}
       </Frame>
     )
   }
 
   return (
-    <Frame title="Restore from a recovery phrase">
+    <Frame title='Restore from a recovery phrase'>
       <Text dimColor>Paste the 24 words you saved when you first set this identity up.</Text>
       <Box marginTop={1}>
         <Text color={ACCENT}>{'> '}</Text>
@@ -125,10 +125,10 @@ export function Onboarding ({ profile, onDone, pending, error, onAcknowledge }) 
           value={phrase}
           onChange={setPhrase}
           onSubmit={(value) => onDone({ mode: 'restore', phrase: value.trim(), nick: nick.trim() })}
-          placeholder="witch collapse practice feed shame open despair…"
+          placeholder='witch collapse practice feed shame open despair…'
         />
       </Box>
-      {error && <Text color="red">{error}</Text>}
+      {error && <Text color='red'>{error}</Text>}
       {mode === 'restore' && !error && (
         <Text dimColor>Restoring replaces whatever identity this profile holds.</Text>
       )}

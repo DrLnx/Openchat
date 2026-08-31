@@ -202,15 +202,15 @@ export function App ({ client, profile }) {
   ), [state.members, state.attachments, state.self])
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection='column'>
       <Static items={loaded ? [{ key: '__banner__' }, ...committed.current] : []}>
         {(entry) => entry.key === '__banner__'
-          ? <Banner key="__banner__" room={state.room} self={state.self} profile={profile} />
+          ? <Banner key='__banner__' room={state.room} self={state.self} profile={profile} />
           : renderLine(entry)}
       </Static>
 
       {live.length > 0 && (
-        <Box flexDirection="column">{live.map(renderLine)}</Box>
+        <Box flexDirection='column'>{live.map(renderLine)}</Box>
       )}
 
       <InputBar

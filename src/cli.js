@@ -12,6 +12,7 @@ import {
 } from './core/store.js'
 import { decodeInvite } from './protocol/invite.js'
 import { helpText } from './ui/model/commands.js'
+import { onShutdown, runShutdown } from './core/shutdown.js'
 
 const USAGE = `openchat — serverless, end-to-end encrypted group chat
 
@@ -136,6 +137,7 @@ async function launchUI () {
   )
 
   await waitUntilExit()
+  await runShutdown()
   process.exit(0)
 }
 
@@ -150,9 +152,14 @@ async function withClient (fn) {
 
   const client = new Client({ dir, profile })
   await client.ready()
+
+  // Registered so a ctrl+c part-way through a command still closes the cores.
+  const release = onShutdown(() => client.close())
+
   try {
     return await fn(client)
   } finally {
+    release()
     await client.close().catch(() => {})
   }
 }

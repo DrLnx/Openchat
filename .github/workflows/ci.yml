@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: ['22', '24']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # sodium-native and friends ship prebuilds; `npm ci` fails loudly rather
+      # than silently building from source if one is missing for this platform.
+      - run: npm ci
+
+      - run: npm run lint
+
+      # The integration tests spin up a local hyperdht testnet and pin it to
+      # loopback, so the whole suite runs without touching the public DHT.
+      - run: npm test
+
+  package:
+    name: package installs cleanly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      # Prove the published tarball actually works: pack it, install it
+      # globally somewhere clean, and run the binary. This catches a missing
+      # entry in `files`, which no unit test would.
+      - run: npm pack
+      - run: npm install -g ./openchat-*.tgz
+      - run: openchat --help
+      - run: openchat whoami || true

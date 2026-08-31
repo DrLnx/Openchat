@@ -19,7 +19,8 @@ import b4a from 'b4a'
 import backend from './crypto-node.js'
 import {
   decodeBlock, encodeBlock, joinChallenge, controlChallenge,
-  messageKey, writerRecordKey, MESSAGE_PREFIX, WRITER_PREFIX, META
+  messageKey, writerRecordKey, removedRecordKey,
+  MESSAGE_PREFIX, WRITER_PREFIX, REMOVED_PREFIX, META
 } from './blocks.js'
 import { attachPairing } from './pairing.js'
 import { seal, open as openEnvelope } from '../protocol/envelope.js'
@@ -60,6 +61,7 @@ export class Room extends EventEmitter {
     this._owner = null
     this._closedByOwner = false
     this._removed = false
+    this._removedMembers = new Set()
 
     this.base = new Autobase(this.store, roomKey ? b4a.from(roomKey) : null, {
       encryptionKey: this.encryptionKey,
@@ -140,6 +142,11 @@ export class Room extends EventEmitter {
     return this._closedByOwner
   }
 
+  /** Identity keys the owner has removed; they cannot rejoin until allowed. */
+  get removedMembers () {
+    return [...this._removedMembers]
+  }
+
   /**
    * Issue an owner-only action: close, reopen, transfer, or remove a member.
    * Rejected locally when we are not the owner, and again in apply() by every
@@ -200,6 +207,11 @@ export class Room extends EventEmitter {
 
         const authorHex = b4a.toString(block.author, 'hex')
 
+        // Removal is enforced here, in the log, and not only by the client that
+        // relays a join. A removed member still holds the invite and can simply
+        // ask again; without this they would be back in immediately.
+        if (await view.get(removedRecordKey(authorHex))) continue
+
         // Note there is deliberately no "is the room closed?" test here.
         // Autobase reapplies the log whenever it learns about concurrent
         // writes, and a close that was concurrent with an existing member's
@@ -248,10 +260,19 @@ export class Room extends EventEmitter {
             const subjectHex = b4a.toString(block.subject, 'hex')
             // An owner removing themselves would leave the room unownable.
             if (b4a.equals(block.subject, block.author)) break
+
+            await view.put(removedRecordKey(subjectHex), b4a.from([1]))
+
             const record = await view.get(writerRecordKey(subjectHex))
             if (!record) break
             if (host.removeable(record.value)) await host.removeWriter(record.value)
             await view.del(writerRecordKey(subjectHex))
+            break
+          }
+
+          case 'allow': {
+            // Undo a removal, so a kick is not necessarily permanent.
+            await view.del(removedRecordKey(b4a.toString(block.subject, 'hex')))
             break
           }
         }
@@ -334,6 +355,12 @@ export class Room extends EventEmitter {
     else if (this._writers.has(me)) this._removed = true
 
     this._writers = writers
+
+    const removed = new Set()
+    for await (const entry of view.createReadStream({ gte: REMOVED_PREFIX, lt: REMOVED_PREFIX + '~' })) {
+      removed.add(entry.key.slice(REMOVED_PREFIX.length))
+    }
+    this._removedMembers = removed
 
     const owner = await readMeta(view, META.owner)
     this._owner = owner ? b4a.toString(owner, 'hex') : null
@@ -425,6 +452,10 @@ export class Room extends EventEmitter {
     // a join, exactly as they could hand out the invite again. Closing keeps
     // honest clients out, it does not make the room cryptographically sealed.
     if (this._closedByOwner) return
+
+    // Someone the owner removed does not get relayed back in. apply() enforces
+    // this too; refusing here just saves a pointless append.
+    if (this._removedMembers.has(authorHex)) return
 
     const valid = await backend.verify(block.author, block.signature, joinChallenge(block.writerKey))
     if (!valid) return

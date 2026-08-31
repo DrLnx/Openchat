@@ -1,7 +1,31 @@
 {
   "name": "openchat",
   "version": "0.1.0",
-  "description": "Serverless, end-to-end encrypted P2P group chat for the terminal",
+  "description": "Serverless, end-to-end encrypted group chat and DMs for your terminal, over a P2P DHT",
+  "keywords": [
+    "chat",
+    "p2p",
+    "e2ee",
+    "encryption",
+    "terminal",
+    "cli",
+    "hypercore",
+    "hyperswarm",
+    "holepunch",
+    "dht",
+    "serverless",
+    "tui"
+  ],
+  "homepage": "https://github.com/n3xtpy/Openchat#readme",
+  "bugs": {
+    "url": "https://github.com/n3xtpy/Openchat/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/n3xtpy/Openchat.git"
+  },
+  "author": "n3xtpy",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "openchat": "bin/openchat.js"
@@ -9,7 +33,9 @@
   "files": [
     "bin",
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=22"
@@ -23,7 +49,11 @@
     "test:unit": "node --import ./scripts/jsx-register.js --test \"test/unit/*.test.js\"",
     "record": "node scripts/record-demo.js",
     "start": "node bin/openchat.js",
-    "demo": "node --import ./scripts/jsx-register.js scripts/demo-tour.js"
+    "demo": "node --import ./scripts/jsx-register.js scripts/demo-tour.js",
+    "lint": "standard",
+    "lint:fix": "standard --fix",
+    "prepack": "npm run build",
+    "check": "npm run lint && npm test"
   },
   "dependencies": {
     "@noble/ed25519": "^3.2.0",
@@ -47,7 +77,7 @@
   "devDependencies": {
     "esbuild": "^0.28.2",
     "ink-testing-library": "^4.0.0",
-    "playwright": "^1.62.1"
-  },
-  "license": "MIT"
+    "playwright": "^1.62.1",
+    "standard": "^17.1.2"
+  }
 }

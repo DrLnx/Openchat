@@ -82,8 +82,8 @@ export function InputBar ({ onSubmit, onCycle, disabled, placeholder }) {
   }
 
   return (
-    <Box flexDirection="column">
-      <Box borderStyle="round" borderColor={disabled ? 'gray' : ACCENT} paddingX={1}>
+    <Box flexDirection='column'>
+      <Box borderStyle='round' borderColor={disabled ? 'gray' : ACCENT} paddingX={1}>
         <Text color={disabled ? 'gray' : ACCENT}>{'> '}</Text>
         <TextInput
           value={value}
@@ -98,7 +98,7 @@ export function InputBar ({ onSubmit, onCycle, disabled, placeholder }) {
       </Box>
 
       {open && (
-        <Box flexDirection="column" paddingX={2}>
+        <Box flexDirection='column' paddingX={2}>
           {matches.map((command, i) => (
             <Text key={command.name} color={i === selected ? ACCENT : undefined} dimColor={i !== selected}>
               {i === selected ? `${MARKER.selected} ` : '  '}

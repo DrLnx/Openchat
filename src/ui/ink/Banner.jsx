@@ -12,8 +12,8 @@ import { shortKey } from '../model/format.js'
 export function Banner ({ room, self, profile }) {
   return (
     <Box
-      flexDirection="column"
-      borderStyle="round"
+      flexDirection='column'
+      borderStyle='round'
       borderColor={ACCENT}
       paddingX={1}
       marginBottom={1}

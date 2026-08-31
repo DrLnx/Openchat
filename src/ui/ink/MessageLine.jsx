@@ -45,7 +45,7 @@ export function MessageLine ({ entry, members, attachments, self }) {
   // Everything on the header line lives in one <Text>: sibling boxes wrap
   // independently in Ink, which breaks names in half on a narrow terminal.
   const body = message.type === 'file'
-    ? <Text color="cyan">{message.name} ({formatBytes(message.size)})</Text>
+    ? <Text color='cyan'>{message.name} ({formatBytes(message.size)})</Text>
     : <Text>{message.body}</Text>
 
   const header = isSelf
@@ -66,7 +66,7 @@ export function MessageLine ({ entry, members, attachments, self }) {
   if (message.type !== 'file') return header
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection='column'>
       {header}
       <FileMessage message={message} attachment={attachments[message.id]} />
     </Box>
@@ -83,7 +83,7 @@ function Notice ({ notice }) {
   const color = isError ? 'red' : notice.level === 'warn' ? 'yellow' : undefined
 
   return (
-    <Box flexDirection="column" paddingLeft={2}>
+    <Box flexDirection='column' paddingLeft={2}>
       <Text color={color} dimColor={!color}>
         <Text dimColor>{MARKER.detail}  </Text>
         {isError ? `${MARKER.error} ` : ''}{lines[0]}

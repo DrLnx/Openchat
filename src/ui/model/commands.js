@@ -21,7 +21,8 @@ export const COMMANDS = [
   { name: 'close', args: '', help: 'close this room to new members (owner only)' },
   { name: 'reopen', args: '', help: 'let people join again (owner only)' },
   { name: 'transfer', args: '<key|name>', help: 'hand the room to someone else (owner only)' },
-  { name: 'remove', args: '<key|name>', help: 'remove a member (owner only)' },
+  { name: 'remove', args: '<key|name>', help: 'remove a member and keep them out (owner only)' },
+  { name: 'allow', args: '<key|name>', help: 'let a removed member back in (owner only)' },
   { name: 'help', args: '', help: 'show this list' },
   { name: 'quit', args: '', help: 'leave and exit' }
 ]
@@ -30,7 +31,7 @@ const BY_NAME = new Map(COMMANDS.map((c) => [c.name, c]))
 
 // Commands that take everything after the name as one argument — a path or an
 // invite must not be split on spaces.
-const RAW_ARG = new Set(['join', 'file', 'nick', 'download', 'dm', 'switch', 'new', 'transfer', 'remove'])
+const RAW_ARG = new Set(['join', 'file', 'nick', 'download', 'dm', 'switch', 'new', 'transfer', 'remove', 'allow'])
 
 /**
  * @param {string} input a raw line from the input bar

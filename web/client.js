@@ -220,10 +220,11 @@ export class BrowserClient extends EventTarget {
           const frame = await this._seal(chunk)
           this.transport.post({ kind: 'blob', id: data.id, seq, total, frame: new Uint8Array(frame) })
         }
-        return
+        break
       }
 
       default:
+        break
     }
   }
 

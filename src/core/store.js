@@ -11,7 +11,7 @@
 
 import os from 'node:os'
 import path from 'node:path'
-import { readFile, writeFile, mkdir, readdir, rm } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, readdir, rm, rename } from 'node:fs/promises'
 import Corestore from 'corestore'
 import b4a from 'b4a'
 
@@ -117,18 +117,58 @@ export function defaultConfig () {
 }
 
 export async function readConfig (dir) {
+  let raw
   try {
-    const raw = JSON.parse(await readFile(configPath(dir), 'utf8'))
-    return { ...defaultConfig(), ...raw }
+    raw = await readFile(configPath(dir), 'utf8')
   } catch (err) {
     if (err.code === 'ENOENT') return defaultConfig()
     throw err
   }
+
+  let parsed
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    // A truncated write or a hand-edit should not be a stack trace on startup.
+    // Keep the damaged file so nothing is silently destroyed, and carry on with
+    // defaults — identity lives in a separate file and is unaffected.
+    const salvaged = `${configPath(dir)}.corrupt-${Date.now()}`
+    await writeFile(salvaged, raw).catch(() => {})
+    return { ...defaultConfig(), recovered: salvaged }
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return defaultConfig()
+
+  // Coerce the collections: a config edited by hand can have the right keys
+  // with the wrong shapes, and everything downstream assumes arrays.
+  return {
+    ...defaultConfig(),
+    ...parsed,
+    rooms: Array.isArray(parsed.rooms) ? parsed.rooms.filter(isRoomEntry) : [],
+    contacts: Array.isArray(parsed.contacts) ? parsed.contacts.filter(isPeerEntry) : [],
+    dms: Array.isArray(parsed.dms) ? parsed.dms.filter(isPeerEntry) : []
+  }
+}
+
+const HEX64 = /^[0-9a-f]{64}$/i
+
+function isRoomEntry (entry) {
+  return !!entry && HEX64.test(entry.key || '') && HEX64.test(entry.encryptionKey || '')
+}
+
+function isPeerEntry (entry) {
+  return !!entry && HEX64.test(entry.key || '')
 }
 
 export async function writeConfig (config, dir) {
   await mkdir(dir, { recursive: true })
-  await writeFile(configPath(dir), JSON.stringify(config, null, 2), { mode: 0o600 })
+
+  // Write-then-rename: a crash between the two leaves the old config intact
+  // rather than a half-written one. Renaming within a directory is atomic.
+  const target = configPath(dir)
+  const temporary = `${target}.${process.pid}.tmp`
+  await writeFile(temporary, JSON.stringify(config, null, 2), { mode: 0o600 })
+  await rename(temporary, target)
   return config
 }
 

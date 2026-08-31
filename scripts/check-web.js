@@ -139,6 +139,7 @@ check(
 // Query and read in one evaluate: `$eval` takes the handle in a separate
 // round-trip, and a log re-render in between detaches the node, which reports
 // an empty computed style rather than the real one.
+/* global getComputedStyle */
 const marker = await page.evaluate(() => {
   const el = document.querySelector('.attach')
   if (!el) return null

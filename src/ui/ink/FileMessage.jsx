@@ -10,7 +10,7 @@ function Bar ({ progress }) {
   const filled = Math.round(Math.min(Math.max(progress, 0), 1) * WIDTH)
   return (
     <Text>
-      <Text color="cyan">{'█'.repeat(filled)}</Text>
+      <Text color='cyan'>{'█'.repeat(filled)}</Text>
       <Text dimColor>{'░'.repeat(WIDTH - filled)}</Text>
       <Text dimColor> {Math.round(progress * 100)}%</Text>
     </Text>
@@ -23,25 +23,30 @@ function Bar ({ progress }) {
  * above, so this says only what happened to it.
  */
 export function FileMessage ({ message, attachment }) {
-  const status = attachment?.status
-
-  const detail = status === 'downloading'
-    ? <Bar progress={attachment.progress || 0} />
-    : status === 'ready'
-      ? <Text dimColor>{
-          attachment.sent
-            ? 'sent'
-            : attachment.path ? `saved to ${attachment.path}` : 'received'
-        }</Text>
-      : status === 'failed'
-        ? <Text color="red">failed: {attachment.error}</Text>
-        : status === 'available'
-          ? <Text dimColor>over the auto-download limit — /download {message.id.slice(0, 6)}</Text>
-          : <Text dimColor>not downloaded — /download {message.id.slice(0, 6)}</Text>
-
   return (
     <Box paddingLeft={8}>
-      <Text><Text dimColor>{MARKER.detail}  </Text>{detail}</Text>
+      <Text><Text dimColor>{MARKER.detail}  </Text>{detailFor(message, attachment)}</Text>
     </Box>
   )
+}
+
+/** What happened to this attachment, in one short phrase. */
+function detailFor (message, attachment) {
+  const status = attachment?.status
+
+  if (status === 'downloading') return <Bar progress={attachment.progress || 0} />
+
+  if (status === 'ready') {
+    // A file you sent was never "saved" anywhere — you already had it.
+    if (attachment.sent) return <Text dimColor>sent</Text>
+    return <Text dimColor>{attachment.path ? `saved to ${attachment.path}` : 'received'}</Text>
+  }
+
+  if (status === 'failed') return <Text color='red'>failed: {attachment.error}</Text>
+
+  if (status === 'available') {
+    return <Text dimColor>over the auto-download limit — /download {message.id.slice(0, 6)}</Text>
+  }
+
+  return <Text dimColor>not downloaded — /download {message.id.slice(0, 6)}</Text>
 }

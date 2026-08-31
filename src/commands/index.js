@@ -116,11 +116,11 @@ export async function runCommand (command, ctx) {
       const members = room.members
       notice(members.length
         ? members.map((m) => {
-            const you = m === client.identity.publicKeyHex ? ' (you)' : ''
-            const owner = m === room.owner ? ' · owner' : ''
-            const named = client.contacts.find((c) => c.key === m)
-            return `${shortKey(m, 16)}${named ? ` ${named.name}` : ''}${you}${owner}`
-          }).join('\n')
+          const you = m === client.identity.publicKeyHex ? ' (you)' : ''
+          const owner = m === room.owner ? ' · owner' : ''
+          const named = client.contacts.find((c) => c.key === m)
+          return `${shortKey(m, 16)}${named ? ` ${named.name}` : ''}${you}${owner}`
+        }).join('\n')
         : '(just you)')
       return
     }
@@ -165,7 +165,15 @@ export async function runCommand (command, ctx) {
     case 'remove': {
       const { subject } = await client.controlRoom('remove', command.arg)
       ctx.refresh?.()
-      notice(`removed ${shortKey(subject, 16)} from the room`)
+      notice(`removed ${shortKey(subject, 16)} — they cannot rejoin with the invite`)
+      notice('/allow them if you change your mind.')
+      return
+    }
+
+    case 'allow': {
+      const { subject } = await client.controlRoom('allow', command.arg)
+      ctx.refresh?.()
+      notice(`${shortKey(subject, 16)} can join again`)
       return
     }
 

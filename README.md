@@ -16,6 +16,123 @@ encrypted append-only log between themselves. Built on the Holepunch stack —
 needing an install. See [The browser harness](#the-browser-harness) for what it
 does and does not simulate.
 
+## Install
+
+> **v0.1.0 has not been published to npm, the AUR or Homebrew yet.** The
+> commands below are what they will be; until the first release is tagged, use
+> [From source](#from-source), which works today. Release steps are in
+> [RELEASING.md](RELEASING.md).
+
+Everything needs **Node.js 22 or newer** and nothing else. There is no server to
+run and no account to create.
+
+### npm — any platform
+
+```bash
+npm install -g openchat
+```
+
+### Arch, Manjaro, EndeavourOS
+
+```bash
+yay -S openchat        # or: paru -S openchat
+```
+
+<details>
+<summary>Building the package by hand</summary>
+
+```bash
+git clone https://aur.archlinux.org/openchat.git
+cd openchat && makepkg -si
+```
+
+The `PKGBUILD` lives in [`packaging/PKGBUILD`](packaging/PKGBUILD).
+</details>
+
+### macOS and Linux — Homebrew
+
+```bash
+brew install n3xtpy/openchat/openchat
+```
+
+### One line
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/n3xtpy/Openchat/main/install.sh | sh
+```
+
+That script checks your Node version and runs the npm install above — nothing
+else. Piping a script from the internet into a shell is a habit worth being
+suspicious of, especially from a security tool, so
+[read it first](install.sh); it is short on purpose.
+
+### From source
+
+```bash
+git clone https://github.com/n3xtpy/Openchat.git
+cd Openchat
+npm install
+npm run build
+npm link          # optional: puts `openchat` on your PATH
+```
+
+Without `npm link`, run it as `node bin/openchat.js` wherever the docs below say
+`openchat`.
+
+## First run
+
+```bash
+openchat
+```
+
+That walks you through setting up an account — which here means generating a
+keypair, not signing up for anything — and shows a recovery phrase. Write it
+down: it is the only way back to your identity, and no server can reissue it.
+
+Then, to talk to someone:
+
+```bash
+openchat room create design-team     # prints an invite string
+```
+
+Send that invite **out of band** — a call, a QR code, a channel you already
+trust. Anyone holding it is a member. On their machine:
+
+```bash
+openchat room join openchat1:AUEp_UIOSh...
+openchat                             # open the app
+```
+
+One of you has to be online while the other joins: admitting a member is
+something an existing member does, and there is no server to do it for you.
+
+## Two accounts, two terminals
+
+Profiles are separate accounts on one machine — different keys, different
+storage, different rooms, different contacts. One per terminal works well.
+
+```bash
+# terminal one
+openchat --profile work
+
+# terminal two
+openchat --profile personal
+```
+
+Run `openchat whoami --profile work` to get its public key, then `/dm <key>` in
+the other terminal. No invite is involved; see [Direct
+messages](#direct-messages).
+
+```bash
+openchat profiles                 # list the accounts on this machine
+openchat login personal           # change which one is the default
+openchat logout                   # back to the default profile
+```
+
+`OPENCHAT_PROFILE` does the same job as `--profile`, so a terminal can be pinned
+to an account by exporting it once. Nothing is shared between profiles, and
+`logout` only changes which one is current — it deletes nothing.
+
 ## Trying it without a second machine
 
 ```bash
@@ -45,68 +162,6 @@ get it:
 
 Nobody can enumerate users, and nobody can cold-message you without your key.
 
-## Requirements
-
-Node.js 22 or newer.
-
-## Install
-
-```bash
-npm install
-npm run build
-```
-
-Optionally put it on your `PATH`:
-
-```bash
-npm install -g .
-```
-
-The examples below use `node bin/openchat.js`; substitute `openchat` if you
-installed globally.
-
-## Chatting with someone
-
-On your machine, create a room:
-
-```bash
-node bin/openchat.js room create design-team
-```
-
-That prints an invite string:
-
-```
-openchat1:AUEp_UIOShE7g9tC3Do9ZA6sVeZvkFax14hJac-BtIfmylZyEejGUuW8v94FHo0-...
-```
-
-Send it to the other person **out of band** — a call, a QR code, a channel you
-already trust. Anyone holding that string is a member of the room. On their
-machine:
-
-```bash
-node bin/openchat.js room join openchat1:AUEp_UIOSh...
-```
-
-Both terminals on one machine works too — that is what profiles are for:
-
-```bash
-# terminal one
-node bin/openchat.js --profile work
-
-# terminal two
-node bin/openchat.js --profile personal
-```
-
-Then either of you runs `openchat` to open the chat UI:
-
-```bash
-node bin/openchat.js
-```
-
-You must be online while someone joins. Admitting a new member is something an
-existing member does, so a room whose members are all offline cannot accept
-anyone — see [Known limitations](#known-limitations).
-
 ## Direct messages
 
 A DM needs no invite at all. Both identities are Ed25519 keys, which convert to
@@ -129,21 +184,6 @@ linearize across an unknown writer set — each side appends to its own outbox
 core, both read both, and `protocol/order.js` merges them. Same ordering rule as
 rooms, so both people always see the same conversation.
 
-## Several accounts on one machine
-
-Each **profile** is a separate account: its own keys, store, rooms and contacts.
-One per terminal works well.
-
-```bash
-node bin/openchat.js --profile work            # act as "work" for this command
-node bin/openchat.js login personal            # switch the default
-node bin/openchat.js profiles                  # list them
-```
-
-`OPENCHAT_PROFILE` does the same as `--profile`, so a terminal can be pinned to
-an account by exporting it once. Nothing is shared between profiles, and
-`logout` only changes which one is current — it deletes nothing.
-
 ## Rooms you own
 
 The person who opens a room owns it. Ownership is established by the log itself:
@@ -155,7 +195,12 @@ separate ceremony, and every member independently agrees who the owner is.
 /reopen             let the invite work again
 /transfer <who>     hand the room over — you lose control immediately
 /remove <who>       remove a member; their history stays
+/allow <who>        undo a removal
 ```
+
+Removal is recorded in the room's log, not just acted on once. That matters
+because a removed member still holds the invite: without the record they would
+simply ask to join again and any honest client would relay them back in.
 
 Only the owner can do these, and that is checked by *every* member's client when
 applying the block, not just by the owner's. One honest caveat: `/close` is
@@ -200,7 +245,8 @@ Inside the UI:
 /whoami             show your public key, so others can reach you
 /close /reopen      open or close this room to new members (owner only)
 /transfer <who>     hand the room to someone else (owner only)
-/remove <who>       remove a member (owner only)
+/remove <who>       remove a member and keep them out (owner only)
+/allow <who>        let a removed member back in (owner only)
 /help               show this list
 /quit               leave and exit
 ```
@@ -302,7 +348,7 @@ This is an MVP, and these are deliberate:
 - **No forward secrecy.** One long-lived key encrypts everything in a room or a
   DM. Someone who obtains it can read that conversation's whole history.
 - **`/close` is enforced by clients, not by the log.** See [Rooms you
-  own](#rooms-you-own).
+  own](#rooms-you-own). `/remove` *is* enforced by the log.
 - **A DM partner can write into their own outbox freely.** That is the point,
   but it means the only spam control in a DM is not giving out your key.
 - **`Room._refresh()` re-reads the entire message range** on every update and

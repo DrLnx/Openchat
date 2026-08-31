@@ -43,7 +43,7 @@ async function main () {
   await bob.sendText('got the invite — this is over the DHT, no server anywhere')
   await settle(app, "Bob's message arrives, decrypted and verified.")
 
-  await app.type( 'that is the idea. offline members catch up on reconnect.')
+  await app.type('that is the idea. offline members catch up on reconnect.')
   await settle(app, 'Alice replies. Her message is sealed before it touches the wire.')
 
   // Capture the command menu open, before it is completed.
@@ -54,13 +54,13 @@ async function main () {
 
   const file = path.join(await mkdtemp(path.join(tmpdir(), 'openchat-demo-')), 'protocol-notes.md')
   await writeFile(file, '# openchat\n\ntopic is public. the key never is.\n')
-  await app.type( `/file ${file}`)
+  await app.type(`/file ${file}`)
   await settle(app, 'A file is sent as metadata; the bytes follow from a blob core.')
 
-  await app.type( '/invite')
+  await app.type('/invite')
   await settle(app, '/invite prints the string that admits the next member.')
 
-  await app.type( '/nope')
+  await app.type('/nope')
   await settle(app, 'An unknown command is reported without sending it to the room.')
 
   app.unmount()

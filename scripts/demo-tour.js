@@ -98,7 +98,7 @@ async function main () {
   await settle(app)
   show(app)
 
-  const graceSide = await personal.openDm(work.identity.publicKeyHex)
+  await personal.openDm(work.identity.publicKeyHex)
   await sleep(1500)
   await personal.sendText('and this one nobody can even see us having')
   await settle(app, 1800)
