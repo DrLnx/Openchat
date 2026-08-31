@@ -1,16 +1,15 @@
 // The command-line entry point, run as a real subprocess.
 //
-// Everything else in this suite drives the Client object directly, which is why
-// a first-run bug lived here undetected: every subcommand refused to run on a
-// profile that had never been used, telling you to open the UI first. The whole
-// CLI was unusable until you had launched the app once. These tests exercise
-// `openchat …` the way a person does.
+// There is one command. openchat is driven from inside the app, so what the
+// shell surface has to get right is small and mostly about not stranding
+// anyone: open the app, pick an account, say what version this is, and point
+// someone who typed a subcommand at where that lives now.
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -30,7 +29,7 @@ async function openchat (home, args, { expectFailure = false } = {}) {
   try {
     const { stdout, stderr } = await run(process.execPath, [BIN, ...args], {
       env: { ...process.env, OPENCHAT_HOME: home, OPENCHAT_DIR: '' },
-      timeout: 60000
+      timeout: 30000
     })
     if (expectFailure) assert.fail(`expected \`openchat ${args.join(' ')}\` to fail`)
     return { stdout, stderr, code: 0 }
@@ -42,95 +41,67 @@ async function openchat (home, args, { expectFailure = false } = {}) {
   }
 }
 
-test('--help lists the commands', async (t) => {
+test('--help explains that the app is where things happen', async (t) => {
   const home = await freshHome(t)
   const { stdout } = await openchat(home, ['--help'])
 
-  for (const command of ['room create', 'room join', 'dm', 'contacts', 'whoami', 'profiles', 'backup']) {
-    assert.ok(stdout.includes(command), `--help should mention "${command}"`)
+  assert.match(stdout, /openchat\s+open the app/, 'the one command is documented')
+  assert.match(stdout, /--profile <name>/, 'so is the one flag')
+  assert.match(stdout, /Everything else happens inside the app/)
+
+  // The in-app commands are the product surface, so --help has to list them.
+  for (const command of ['/dm', '/new', '/join', '/invite', '/backup', '/members']) {
+    assert.ok(stdout.includes(command), `--help should list ${command}`)
   }
 })
 
-test('a command works on a machine that has never run openchat', async (t) => {
+test('--version matches the package', async (t) => {
   const home = await freshHome(t)
+  const { stdout } = await openchat(home, ['--version'])
+  const { version } = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
 
-  // This is the case that was broken: the very first thing a person types
-  // should not be refused because they have not opened the UI yet.
-  const { stdout } = await openchat(home, ['room', 'create', 'design-team'])
-
-  assert.match(stdout, /created #design-team/)
-  assert.match(stdout, /openchat1:/, 'prints an invite')
-  assert.match(stdout, /Set up profile "default"/, 'says it created an identity')
-  assert.match(stdout, /openchat backup/, 'points at the recovery phrase')
+  assert.equal(stdout.trim(), version)
 })
 
-test('the rest of the commands work off the same fresh profile', async (t) => {
+test('a subcommand points at where that lives now instead of just failing', async (t) => {
   const home = await freshHome(t)
-  await openchat(home, ['room', 'create', 'design-team'])
 
-  const who = await openchat(home, ['whoami'])
-  assert.match(who.stdout, /public key: [0-9a-f]{64}/, 'prints a usable key')
-
-  const rooms = await openchat(home, ['rooms'])
-  assert.match(rooms.stdout, /design-team/)
-
-  const backup = await openchat(home, ['backup'])
-  assert.equal(backup.stdout.trim().split('\n')[2].trim().split(/\s+/).length, 24, '24-word phrase')
-
-  const contacts = await openchat(home, ['contacts'])
-  assert.match(contacts.stdout, /no contacts yet/)
-
-  const profiles = await openchat(home, ['profiles'])
-  assert.match(profiles.stdout, /default/)
+  // These used to be subcommands. Someone with the old habit, or an old README
+  // in a tab, should be told where the thing went — not just "unknown".
+  for (const args of [['room', 'create', 'demo'], ['whoami'], ['dm', 'ab'.repeat(32)]]) {
+    const { stderr, stdout, code } = await openchat(home, args, { expectFailure: true })
+    assert.equal(code, 1, `\`openchat ${args.join(' ')}\` should exit non-zero`)
+    assert.match(stderr, /driven from inside the app/)
+    assert.match(stderr, new RegExp(`/${args[0]}`), 'names the slash command to try')
+    assert.match(stdout, /open the app/, 'and prints the usage')
+  }
 })
 
-test('--profile keeps two accounts apart', async (t) => {
+test('nothing is written to disk just by asking for help', async (t) => {
   const home = await freshHome(t)
 
-  await openchat(home, ['--profile', 'work', 'room', 'create', 'standup'])
-  await openchat(home, ['--profile', 'personal', 'whoami'])
+  await openchat(home, ['--help'])
+  await openchat(home, ['--version'])
 
-  const work = await openchat(home, ['--profile', 'work', 'whoami'])
-  const personal = await openchat(home, ['--profile', 'personal', 'whoami'])
-
-  const keyOf = (out) => out.match(/public key: ([0-9a-f]{64})/)[1]
-  assert.notEqual(keyOf(work.stdout), keyOf(personal.stdout), 'separate identities')
-
-  // A room in one profile is not visible from the other.
-  const workRooms = await openchat(home, ['--profile', 'work', 'rooms'])
-  const personalRooms = await openchat(home, ['--profile', 'personal', 'rooms'])
-  assert.match(workRooms.stdout, /standup/)
-  assert.match(personalRooms.stdout, /no rooms yet/)
-
-  const listed = await openchat(home, ['profiles'])
-  assert.match(listed.stdout, /work/)
-  assert.match(listed.stdout, /personal/)
+  // Generating a keypair is a side effect worth not having until someone
+  // actually opens the app.
+  await assert.rejects(
+    () => readFile(path.join(home, 'profiles', 'default', 'identity.json')),
+    /ENOENT/,
+    'no identity should exist yet'
+  )
 })
 
-test('contacts can be saved and listed', async (t) => {
-  const home = await freshHome(t)
-  const key = 'ab'.repeat(32)
-
-  const added = await openchat(home, ['contacts', 'add', key, 'grace'])
-  assert.match(added.stdout, /saved grace/)
-
-  const listed = await openchat(home, ['contacts'])
-  assert.match(listed.stdout, /grace/)
-  assert.match(listed.stdout, new RegExp(key.slice(0, 16)))
-})
-
-test('failures exit non-zero and say what went wrong', async (t) => {
+test('an unreadable profile name cannot escape the profiles directory', async (t) => {
   const home = await freshHome(t)
 
-  const unknown = await openchat(home, ['bogus'], { expectFailure: true })
-  assert.equal(unknown.code, 1)
-  assert.match(unknown.stderr, /unknown command/)
+  // --profile is the only thing the shell surface takes that reaches the
+  // filesystem, so it is the only place a traversal could start.
+  const { code } = await openchat(home, ['--profile', '../../etc', '--version'])
+  assert.equal(code, 0)
 
-  const badInvite = await openchat(home, ['room', 'join', 'not-an-invite'], { expectFailure: true })
-  assert.equal(badInvite.code, 1)
-  assert.match(badInvite.stderr, /openchat1:/, 'explains the expected format')
-
-  const noArgs = await openchat(home, ['room', 'create'], { expectFailure: true })
-  assert.equal(noArgs.code, 1)
-  assert.match(noArgs.stderr, /usage/)
+  await assert.rejects(
+    () => readFile(path.join(home, '..', 'etc', 'identity.json')),
+    'nothing may be created outside the openchat home'
+  )
 })

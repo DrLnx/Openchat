@@ -73,14 +73,18 @@ async function main () {
 
   // --- a room -------------------------------------------------------------
 
-  const room = await work.createRoom('design')
-
-  // The UI we watch throughout is ada's. The banner is printed once at startup
-  // and then scrolls away, so start it with the room already open.
+  // The UI we watch throughout is ada's. Everything below is typed into it,
+  // because that is how the product is used — there is no shell command for
+  // any of it.
   const app = renderApp(React.createElement(App, { client: work, profile: 'work' }))
+  await settle(app, 600)
+
+  await app.type('/new design')
   await settle(app)
-  say('Ada opens a room', 'She owns it. The invite is the only way in.')
+  say('Ada opens a room, from inside the app', 'She owns it. The invite is the only way in.')
   show(app)
+
+  const room = work.activeRoom
 
   await personal.joinRoom(room.invite)
   await personal.sendText('got the invite — no server involved anywhere')

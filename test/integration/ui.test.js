@@ -110,6 +110,48 @@ test('typing a message sends it; typing a slash command runs it', async (t) => {
   assert.match(screen(app), /✗ unknown command/, 'errors are marked')
 })
 
+test('the app can do the things that used to need a shell command', async (t) => {
+  const testnet = await createTestDht()
+  const alice = await startClient(testnet.bootstrap)
+
+  t.after(async () => {
+    await alice.close()
+    await testnet.destroy()
+  })
+
+  await alice.restore()
+  const app = render(React.createElement(App, { client: alice, profile: 'work' }))
+  t.after(() => app.unmount())
+
+  await waitFor(async () => screen(app).includes('Welcome to openchat'), { message: 'the app to start' })
+
+  // A room is created in here, not from a shell command.
+  await type(app, '/new design-team')
+  await waitFor(async () => screen(app).includes('#design-team'), { message: 'the new room' })
+  assert.match(screen(app), /you own it/, 'says the room is yours')
+
+  await type(app, '/invite')
+  await waitFor(async () => screen(app).includes('openchat1:'), { message: 'the invite' })
+
+  // The recovery phrase has to be reachable without leaving the app, since
+  // there is no longer a shell command that shows it.
+  await type(app, '/backup')
+  await waitFor(async () => screen(app).includes('Recovery phrase'), { message: 'the phrase' })
+  const words = alice.identity.mnemonic.split(' ')
+  assert.ok(screen(app).includes(words[0]), 'the real phrase is shown')
+  assert.match(screen(app), /post as you/, 'warns what it is worth')
+
+  await type(app, '/whoami')
+  await waitFor(async () => screen(app).includes(alice.identity.publicKeyHex), {
+    message: 'your key'
+  })
+
+  await type(app, '/profiles')
+  await waitFor(async () => screen(app).includes('--profile'), {
+    message: 'how to open another account'
+  })
+})
+
 test('typing a slash opens a command menu', async (t) => {
   const testnet = await createTestDht()
   const alice = await startClient(testnet.bootstrap)

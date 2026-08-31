@@ -5,9 +5,11 @@
 
 import { build, context } from 'esbuild'
 import { fileURLToPath } from 'node:url'
+import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const { version } = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
 const watch = process.argv.includes('--watch')
 
 const options = {
@@ -21,7 +23,10 @@ const options = {
   jsx: 'automatic',
   jsxImportSource: 'react',
   sourcemap: true,
-  logLevel: 'info'
+  logLevel: 'info',
+  // Baked in at build time: the bundle has no reliable way to find its own
+  // package.json once it is installed globally or into /usr/lib.
+  define: { __OPENCHAT_VERSION__: JSON.stringify(version) }
 }
 
 if (watch) {
