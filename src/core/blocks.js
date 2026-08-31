@@ -16,11 +16,18 @@ import b4a from 'b4a'
 
 import { PROTOCOL_VERSION } from '../protocol/constants.js'
 
-export const BLOCK_TYPE = { MESSAGE: 0, JOIN: 1 }
-export const BLOCK_TYPE_NAME = { 0: 'message', 1: 'join' }
+export const BLOCK_TYPE = { MESSAGE: 0, JOIN: 1, CONTROL: 2 }
+export const BLOCK_TYPE_NAME = { 0: 'message', 1: 'join', 2: 'control' }
+
+/** Things the room's owner can do. Append only — never renumber. */
+export const CONTROL_ACTION = { close: 0, reopen: 1, transfer: 2, remove: 3 }
+export const CONTROL_ACTION_NAME = { 0: 'close', 1: 'reopen', 2: 'transfer', 3: 'remove' }
 
 /** Signed by the joiner's identity key to prove the writer core is theirs. */
 export const JOIN_CONTEXT = b4a.from('openchat:join:v1', 'ascii')
+
+/** Signed by the owner to prove a control block is really theirs. */
+export const CONTROL_CONTEXT = b4a.from('openchat:control:v1', 'ascii')
 
 const block = {
   preencode (state, b) {
@@ -31,6 +38,12 @@ const block = {
       c.string.preencode(state, b.id)
       c.fixed32.preencode(state, b.author)
       c.buffer.preencode(state, b.frame)
+    } else if (b.type === 'control') {
+      c.uint.preencode(state, CONTROL_ACTION[b.action])
+      c.fixed32.preencode(state, b.author)
+      c.fixed32.preencode(state, b.subject)
+      c.uint.preencode(state, b.ts)
+      c.fixed64.preencode(state, b.signature)
     } else {
       c.fixed32.preencode(state, b.writerKey)
       c.fixed32.preencode(state, b.author)
@@ -45,6 +58,12 @@ const block = {
       c.string.encode(state, b.id)
       c.fixed32.encode(state, b.author)
       c.buffer.encode(state, b.frame)
+    } else if (b.type === 'control') {
+      c.uint.encode(state, CONTROL_ACTION[b.action])
+      c.fixed32.encode(state, b.author)
+      c.fixed32.encode(state, b.subject)
+      c.uint.encode(state, b.ts)
+      c.fixed64.encode(state, b.signature)
     } else {
       c.fixed32.encode(state, b.writerKey)
       c.fixed32.encode(state, b.author)
@@ -66,6 +85,21 @@ const block = {
         frame: c.buffer.decode(state)
       }
     }
+
+    if (type === 'control') {
+      const action = CONTROL_ACTION_NAME[c.uint.decode(state)]
+      if (action === undefined) throw new Error('unknown control action')
+      return {
+        v,
+        type,
+        action,
+        author: c.fixed32.decode(state),
+        subject: c.fixed32.decode(state),
+        ts: c.uint.decode(state),
+        signature: c.fixed64.decode(state)
+      }
+    }
+
     return {
       v,
       type,
@@ -94,10 +128,31 @@ export function joinChallenge (writerKey) {
   return out
 }
 
+/**
+ * The bytes an owner signs to authorise a control action. The timestamp is in
+ * there so an old, still-valid signature cannot be replayed to undo a later
+ * decision — apply only honours a control block newer than the last one.
+ */
+export function controlChallenge ({ action, subject, ts }) {
+  return b4a.concat([
+    CONTROL_CONTEXT,
+    b4a.from([CONTROL_ACTION[action]]),
+    b4a.from(subject),
+    b4a.from(String(ts), 'utf8')
+  ])
+}
+
 // Hyperbee view keys. Messages sort by Lamport clock so a range read comes back
 // close to display order; `protocol/order.js` still has the final say.
 export const MESSAGE_PREFIX = 'msg:'
 export const WRITER_PREFIX = 'writer:'
+export const META_PREFIX = 'meta:'
+
+export const META = {
+  owner: `${META_PREFIX}owner`,
+  closed: `${META_PREFIX}closed`,
+  controlTs: `${META_PREFIX}control-ts`
+}
 
 export function messageKey ({ clock, id }) {
   return `${MESSAGE_PREFIX}${String(clock).padStart(12, '0')}:${id}`

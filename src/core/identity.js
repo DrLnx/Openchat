@@ -13,7 +13,6 @@ import * as bip39 from 'bip39'
 
 import { keyPairFromSeed } from './crypto-node.js'
 import { SEED_BYTES } from '../protocol/constants.js'
-import { configDir } from './store.js'
 
 const IDENTITY_VERSION = 1
 
@@ -45,16 +44,27 @@ export class Identity {
   }
 }
 
-export function identityPath (dir = configDir()) {
+export function identityPath (dir) {
   return path.join(dir, 'identity.json')
+}
+
+/** True when this profile has an identity already — i.e. it has been set up. */
+export async function hasIdentity (dir) {
+  try {
+    await readFile(identityPath(dir), 'utf8')
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**
  * Load the local identity, creating one on first run.
- * @param {{ dir?: string, nick?: string }} [opts]
+ * @param {{ dir: string, nick?: string }} opts
  */
 export async function loadIdentity (opts = {}) {
-  const dir = opts.dir || configDir()
+  const dir = opts.dir
+  if (!dir) throw new Error('loadIdentity needs a profile directory')
   const file = identityPath(dir)
 
   try {
@@ -72,7 +82,7 @@ export async function loadIdentity (opts = {}) {
   return identity
 }
 
-export async function saveIdentity (identity, dir = configDir()) {
+export async function saveIdentity (identity, dir) {
   await mkdir(dir, { recursive: true })
   const file = identityPath(dir)
   await writeFile(file, JSON.stringify(identity.toJSON(), null, 2), { mode: 0o600 })
@@ -89,7 +99,7 @@ export async function restoreFromMnemonic (mnemonic, opts = {}) {
 
   const seed = b4a.from(bip39.mnemonicToEntropy(normalized), 'hex')
   const identity = new Identity({ seed, nick: opts.nick })
-  await saveIdentity(identity, opts.dir || configDir())
+  await saveIdentity(identity, opts.dir)
   return identity
 }
 

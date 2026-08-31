@@ -21,7 +21,56 @@ import b4a from 'b4a'
 export const PAIRING_PROTOCOL = 'openchat/pair/1'
 
 /**
- * Attach the pairing channel to one connection.
+ * Open one multiplexed side channel on a connection.
+ *
+ * Shared by room pairing and by DMs, which need the same shape: a small
+ * out-of-band message riding alongside Corestore's replication rather than on a
+ * socket of its own.
+ *
+ * @param {object} opts
+ * @param {import('stream').Duplex} opts.connection
+ * @param {string} opts.protocol   protocol name
+ * @param {Uint8Array} opts.id     scopes the channel (a room key, a DM topic)
+ * @param {(payload: Uint8Array) => void} opts.onMessage
+ * @returns {{ send(payload: Uint8Array): void, close(): void }}
+ */
+export function attachChannel ({ connection, protocol, id, onMessage }) {
+  // Protomux.from caches the muxer on the stream, so this is the same muxer
+  // Corestore's replication stream is already using — we are adding a channel
+  // to it, not competing for the socket.
+  const mux = Protomux.from(connection)
+
+  const channel = mux.createChannel({
+    protocol,
+    id: b4a.from(id),
+    onopen () {},
+    onclose () {}
+  })
+
+  if (!channel) return { send () {}, close () {} }
+
+  const message = channel.addMessage({
+    encoding: c.buffer,
+    onmessage: (payload) => {
+      if (payload && payload.byteLength) onMessage(payload)
+    }
+  })
+
+  channel.open()
+
+  return {
+    send (payload) {
+      if (channel.closed) return
+      message.send(b4a.from(payload))
+    },
+    close () {
+      if (!channel.closed) channel.close()
+    }
+  }
+}
+
+/**
+ * Attach the room pairing channel to one connection.
  *
  * @param {object} opts
  * @param {import('stream').Duplex} opts.connection  a Hyperswarm connection
@@ -30,38 +79,15 @@ export const PAIRING_PROTOCOL = 'openchat/pair/1'
  * @returns {{ announce(block: Uint8Array): void, close(): void }}
  */
 export function attachPairing ({ connection, roomKey, onAnnounce }) {
-  // Protomux.from caches the muxer on the stream, so this is the same muxer
-  // Corestore's replication stream is already using — we are adding a channel
-  // to it, not competing for the socket.
-  const mux = Protomux.from(connection)
-
-  const channel = mux.createChannel({
+  const channel = attachChannel({
+    connection,
     protocol: PAIRING_PROTOCOL,
-    id: b4a.from(roomKey),
-    // A peer that does not speak this protocol simply never opens the channel;
-    // replication still works, they just cannot admit anyone.
-    onopen () {},
-    onclose () {}
+    id: roomKey,
+    onMessage: onAnnounce
   })
-
-  if (!channel) return { announce () {}, close () {} }
-
-  const announcement = channel.addMessage({
-    encoding: c.buffer,
-    onmessage: (block) => {
-      if (block && block.byteLength) onAnnounce(block)
-    }
-  })
-
-  channel.open()
 
   return {
-    announce (block) {
-      if (channel.closed) return
-      announcement.send(b4a.from(block))
-    },
-    close () {
-      if (!channel.closed) channel.close()
-    }
+    announce: channel.send,
+    close: channel.close
   }
 }

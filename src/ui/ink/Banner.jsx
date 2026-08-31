@@ -9,7 +9,7 @@ import { shortKey } from '../model/format.js'
  * the two things worth knowing before you type: which room you are in, and who
  * you are in it.
  */
-export function Banner ({ room, self }) {
+export function Banner ({ room, self, profile }) {
   return (
     <Box
       flexDirection="column"
@@ -25,13 +25,19 @@ export function Banner ({ room, self }) {
       <Text dimColor>  end-to-end encrypted · no server · /help for commands</Text>
       <Text> </Text>
       <Text dimColor>
-        {'  room: '}
-        {room ? <Text color={ACCENT}>#{room.name}</Text> : 'none yet — /join <invite>'}
+        {'  here: '}
+        {room
+          ? <Text color={ACCENT}>{room.kind === 'dm' ? '@' : '#'}{room.name}</Text>
+          : 'nothing open — /new <name> or /dm <key>'}
       </Text>
       <Text dimColor>
         {'  you:  '}{self?.nick || shortKey(self?.publicKey)}
-        {self?.publicKey ? ` (${shortKey(self.publicKey)})` : ''}
+        {profile && profile !== 'default' ? ` · profile ${profile}` : ''}
       </Text>
+      <Text dimColor>
+        {'  key:  '}{self?.publicKey || ''}
+      </Text>
+      <Text dimColor>{'        give someone that key and they can message you'}</Text>
     </Box>
   )
 }

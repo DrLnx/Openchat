@@ -18,8 +18,8 @@ import b4a from 'b4a'
 
 import backend from './crypto-node.js'
 import {
-  decodeBlock, encodeBlock, joinChallenge,
-  messageKey, writerRecordKey, MESSAGE_PREFIX, WRITER_PREFIX
+  decodeBlock, encodeBlock, joinChallenge, controlChallenge,
+  messageKey, writerRecordKey, MESSAGE_PREFIX, WRITER_PREFIX, META
 } from './blocks.js'
 import { attachPairing } from './pairing.js'
 import { seal, open as openEnvelope } from '../protocol/envelope.js'
@@ -57,6 +57,9 @@ export class Room extends EventEmitter {
     this._joinBlock = null
     this._pairings = new Set()
     this._swarm = null
+    this._owner = null
+    this._closedByOwner = false
+    this._removed = false
 
     this.base = new Autobase(this.store, roomKey ? b4a.from(roomKey) : null, {
       encryptionKey: this.encryptionKey,
@@ -123,6 +126,53 @@ export class Room extends EventEmitter {
     return [...this._writers.keys()]
   }
 
+  /** The identity key that currently owns the room, hex. */
+  get owner () {
+    return this._owner
+  }
+
+  get isOwner () {
+    return this._owner === this.identity.publicKeyHex
+  }
+
+  /** A closed room keeps working for its members but admits nobody new. */
+  get isClosed () {
+    return this._closedByOwner
+  }
+
+  /**
+   * Issue an owner-only action: close, reopen, transfer, or remove a member.
+   * Rejected locally when we are not the owner, and again in apply() by every
+   * other member — the local check is a courtesy, the one in apply is the rule.
+   */
+  async control (action, subjectHex = null) {
+    if (!this.base.writable) throw new Error('you are not a member of this room')
+    if (!this.isOwner) throw new Error(`only the room's owner can ${action} it`)
+
+    const subject = subjectHex
+      ? b4a.from(subjectHex, 'hex')
+      : b4a.alloc(32)
+
+    if (subjectHex && subject.byteLength !== 32) throw new Error('expected a 32-byte key')
+
+    const ts = Date.now()
+    const signature = await backend.sign(
+      this.identity.seed,
+      controlChallenge({ action, subject, ts })
+    )
+
+    await this.base.append(encodeBlock({
+      type: 'control',
+      action,
+      author: this.identity.publicKey,
+      subject,
+      ts,
+      signature
+    }))
+    await this._refresh()
+    return action
+  }
+
   // --- Autobase internals -------------------------------------------------
 
   async _apply (nodes, view, host) {
@@ -148,12 +198,70 @@ export class Room extends EventEmitter {
         )
         if (!valid) continue
 
+        const authorHex = b4a.toString(block.author, 'hex')
+
+        // Note there is deliberately no "is the room closed?" test here.
+        // Autobase reapplies the log whenever it learns about concurrent
+        // writes, and a close that was concurrent with an existing member's
+        // join can be reapplied *before* it — which would silently evict a
+        // member who joined while the room was open. Closing is enforced in
+        // _admit() instead, at the point where a member decides whether to
+        // relay a newcomer at all.
         await host.addWriter(block.writerKey, { indexer: true })
-        await view.put(writerRecordKey(b4a.toString(block.author, 'hex')), block.writerKey)
+        await view.put(writerRecordKey(authorHex), block.writerKey)
+
+        // Whoever opened the room owns it: the creator's own record is the
+        // first join block written, so ownership needs no separate ceremony.
+        const owner = await readMeta(view, META.owner)
+        if (!owner) await view.put(META.owner, block.author)
+        continue
+      }
+
+      if (block.type === 'control') {
+        const owner = await readMeta(view, META.owner)
+        if (!owner || !b4a.equals(owner, block.author)) continue // only the owner
+
+        const valid = await backend.verify(
+          block.author,
+          block.signature,
+          controlChallenge({ action: block.action, subject: block.subject, ts: block.ts })
+        )
+        if (!valid) continue
+
+        // Refuse anything not newer than the last honoured control block, so a
+        // replayed close cannot undo a later reopen.
+        const lastTs = Number(b4a.toString((await readMeta(view, META.controlTs)) || b4a.from('0'), 'utf8'))
+        if (block.ts <= lastTs) continue
+        await view.put(META.controlTs, b4a.from(String(block.ts), 'utf8'))
+
+        switch (block.action) {
+          case 'close':
+            await view.put(META.closed, b4a.from([1]))
+            break
+          case 'reopen':
+            await view.put(META.closed, b4a.from([0]))
+            break
+          case 'transfer':
+            await view.put(META.owner, block.subject)
+            break
+          case 'remove': {
+            const subjectHex = b4a.toString(block.subject, 'hex')
+            // An owner removing themselves would leave the room unownable.
+            if (b4a.equals(block.subject, block.author)) break
+            const record = await view.get(writerRecordKey(subjectHex))
+            if (!record) break
+            if (host.removeable(record.value)) await host.removeWriter(record.value)
+            await view.del(writerRecordKey(subjectHex))
+            break
+          }
+        }
         continue
       }
 
       if (block.type === 'message') {
+        // A member removed from the room stops being able to add to its log.
+        const authorHex = b4a.toString(block.author, 'hex')
+        if (!(await view.get(writerRecordKey(authorHex)))) continue
         await view.put(messageKey(block), block.frame)
       }
     }
@@ -169,7 +277,19 @@ export class Room extends EventEmitter {
    */
   async _refresh () {
     if (this.closed) return
+    try {
+      await this._read()
+    } catch (err) {
+      // Closing tears cores down under any refresh still in flight; that is
+      // teardown, not a fault worth reporting.
+      if (this.closed) return
+      throw err
+    }
+  }
+
+  async _read () {
     await this.base.update()
+    if (this.closed) return
 
     const view = this.base.view
     if (!view) return
@@ -204,14 +324,29 @@ export class Room extends EventEmitter {
     }
 
     const joined = [...writers.keys()].filter((k) => !this._writers.has(k))
+    const left = [...this._writers.keys()].filter((k) => !writers.has(k))
+
+    // Track our own removal as a transition rather than as absence: at startup
+    // we are writable before the first refresh has populated the writer list,
+    // and "not in the list yet" must not read as "kicked out".
+    const me = this.identity.publicKeyHex
+    if (writers.has(me)) this._removed = false
+    else if (this._writers.has(me)) this._removed = true
+
     this._writers = writers
+
+    const owner = await readMeta(view, META.owner)
+    this._owner = owner ? b4a.toString(owner, 'hex') : null
+    const closed = await readMeta(view, META.closed)
+    this._closedByOwner = !!(closed && closed[0] === 1)
 
     if (fresh.length) {
       this._messages = linearize([...this._messages, ...fresh])
       this.emit('messages', fresh)
     }
     for (const author of joined) this.emit('member', author)
-    if (fresh.length || joined.length) this.emit('update')
+    for (const author of left) this.emit('member-removed', author)
+    if (fresh.length || joined.length || left.length) this.emit('update')
   }
 
   // --- Membership ---------------------------------------------------------
@@ -285,6 +420,12 @@ export class Room extends EventEmitter {
     if (this._writers.has(authorHex)) return // already a member
     if (!this.base.writable) return // we cannot admit anyone ourselves
 
+    // A closed room admits nobody new. This is enforced by members' clients
+    // rather than by the log itself: a member who wanted to could still relay
+    // a join, exactly as they could hand out the invite again. Closing keeps
+    // honest clients out, it does not make the room cryptographically sealed.
+    if (this._closedByOwner) return
+
     const valid = await backend.verify(block.author, block.signature, joinChallenge(block.writerKey))
     if (!valid) return
 
@@ -336,6 +477,12 @@ export class Room extends EventEmitter {
   }
 
   async _append (message) {
+    // Removal is checked first: it also takes away write access, so the generic
+    // "not a writer yet" message would be technically true and actively
+    // misleading — you are not waiting for anything.
+    if (this._removed) {
+      throw new Error('you have been removed from this room')
+    }
     if (!this.base.writable) {
       throw new Error('not a writer in this room yet — waiting to be admitted')
     }
@@ -394,6 +541,12 @@ export async function openRoom ({ store, identity, roomKey, encryptionKey, name,
   const room = new Room({ store, identity, roomKey, encryptionKey, name, namespace })
   await room.ready()
   return room
+}
+
+/** Hyperbee returns { key, value } or null; meta values are raw buffers. */
+async function readMeta (view, key) {
+  const node = await view.get(key)
+  return node ? node.value : null
 }
 
 function randomNamespace () {

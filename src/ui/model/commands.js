@@ -5,13 +5,23 @@
 // without a terminal, a network, or a room.
 
 export const COMMANDS = [
+  { name: 'dm', args: '<key|name>', help: 'message someone directly — no invite needed' },
   { name: 'join', args: '<invite>', help: 'join a room from an invite string' },
+  { name: 'new', args: '<name>', help: 'open a new room you own' },
+  { name: 'switch', args: '<name>', help: 'jump to another room or conversation' },
   { name: 'invite', args: '', help: 'print an invite for the current room' },
   { name: 'nick', args: '<name>', help: 'set your display name' },
-  { name: 'file', args: '<path>', help: 'send a file to the room' },
+  { name: 'file', args: '<path>', help: 'send a file' },
   { name: 'download', args: '<id>', help: 'fetch an attachment you skipped' },
-  { name: 'rooms', args: '', help: 'list the rooms you have joined' },
+  { name: 'rooms', args: '', help: 'list everything you have open' },
   { name: 'members', args: '', help: 'list the members of this room' },
+  { name: 'contacts', args: '', help: 'list the people you have saved' },
+  { name: 'add', args: '<key> [name]', help: 'save someone as a contact' },
+  { name: 'whoami', args: '', help: 'show your public key, so others can reach you' },
+  { name: 'close', args: '', help: 'close this room to new members (owner only)' },
+  { name: 'reopen', args: '', help: 'let people join again (owner only)' },
+  { name: 'transfer', args: '<key|name>', help: 'hand the room to someone else (owner only)' },
+  { name: 'remove', args: '<key|name>', help: 'remove a member (owner only)' },
   { name: 'help', args: '', help: 'show this list' },
   { name: 'quit', args: '', help: 'leave and exit' }
 ]
@@ -20,7 +30,7 @@ const BY_NAME = new Map(COMMANDS.map((c) => [c.name, c]))
 
 // Commands that take everything after the name as one argument — a path or an
 // invite must not be split on spaces.
-const RAW_ARG = new Set(['join', 'file', 'nick', 'download'])
+const RAW_ARG = new Set(['join', 'file', 'nick', 'download', 'dm', 'switch', 'new', 'transfer', 'remove'])
 
 /**
  * @param {string} input a raw line from the input bar

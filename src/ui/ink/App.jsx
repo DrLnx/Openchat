@@ -9,7 +9,7 @@
 // not cost a full repaint on every keystroke.
 
 import React, { useEffect, useReducer, useCallback, useState, useMemo } from 'react'
-import { Box, Static } from 'ink'
+import { Box, Static, useInput } from 'ink'
 
 import { Banner } from './Banner.jsx'
 import { MessageLine } from './MessageLine.jsx'
@@ -19,7 +19,7 @@ import { initialState, reduce, transcript } from '../model/state.js'
 import { parseInput } from '../model/commands.js'
 import { runCommand } from '../../commands/index.js'
 
-export function App ({ client }) {
+export function App ({ client, profile }) {
   const [state, dispatch] = useReducer(reduce, initialState({
     publicKey: client.identity.publicKeyHex,
     nick: client.identity.nick
@@ -38,14 +38,36 @@ export function App ({ client }) {
   // Pull whatever the client already knows into the view. Called on mount and
   // after any command that changes which room is active.
   const refresh = useCallback(() => {
+    const target = client.activeTarget
     const room = client.activeRoom
+
     dispatch({
       type: 'room',
-      room: room ? { key: room.keyHex, name: room.name } : null,
-      messages: room ? room.messages : []
+      room: target
+        ? {
+            key: client.activeId,
+            name: target.name,
+            kind: room ? 'room' : 'dm',
+            closed: room ? room.isClosed : false,
+            owned: room ? room.isOwner : false
+          }
+        : null,
+      messages: target ? target.messages : []
     })
-    dispatch({ type: 'rooms', rooms: client.roomList.map((r) => ({ ...r, unread: 0 })) })
+    dispatch({
+      type: 'rooms',
+      rooms: client.conversationList.map((c) => ({ key: c.id, ...c, unread: 0 }))
+    })
+
+    // In a DM the two participants are known without anyone speaking.
     if (room) dispatch({ type: 'known-members', publicKeys: room.members })
+    else if (client.activeChannel) {
+      dispatch({
+        type: 'known-members',
+        publicKeys: [client.activeChannel.peerKey, client.identity.publicKeyHex]
+      })
+    }
+
     dispatch({
       type: 'connection',
       connection: {
@@ -59,13 +81,20 @@ export function App ({ client }) {
     refresh()
     setLoaded(true)
 
-    const onMessages = ({ roomKey, messages }) => dispatch({ type: 'messages', roomKey, messages })
+    const onMessages = ({ conversationId, messages }) => dispatch({
+      type: 'messages',
+      roomKey: conversationId,
+      messages
+    })
     const onConnection = (connection) => dispatch({ type: 'connection', connection })
     const onAttachment = ({ id, ...attachment }) => dispatch({ type: 'attachment', id, attachment })
     const onNotice = ({ text, level }) => notice(text, level)
     const onMember = ({ author }) => dispatch({ type: 'known-members', publicKeys: [author] })
 
+    const onSwitched = () => refresh()
+
     client.on('messages', onMessages)
+    client.on('switched', onSwitched)
     client.on('connection', onConnection)
     client.on('attachment', onAttachment)
     client.on('notice', onNotice)
@@ -73,6 +102,7 @@ export function App ({ client }) {
 
     return () => {
       client.off('messages', onMessages)
+      client.off('switched', onSwitched)
       client.off('connection', onConnection)
       client.off('attachment', onAttachment)
       client.off('notice', onNotice)
@@ -105,6 +135,14 @@ export function App ({ client }) {
       setBusy(false)
     }
   }, [client, notice, refresh])
+
+  // Ctrl+N and Ctrl+P move between everything you have open, so a second room
+  // or a DM does not need a command to reach.
+  useInput((input, key) => {
+    if (!key.ctrl) return
+    if (input === 'n') client.cycle(1)
+    else if (input === 'p') client.cycle(-1)
+  })
 
   useEffect(() => {
     if (!exiting) return
@@ -142,7 +180,7 @@ export function App ({ client }) {
     <Box flexDirection="column">
       <Static items={loaded ? [{ key: '__banner__' }, ...settled] : []}>
         {(entry) => entry.key === '__banner__'
-          ? <Banner key="__banner__" room={state.room} self={state.self} />
+          ? <Banner key="__banner__" room={state.room} self={state.self} profile={profile} />
           : renderLine(entry)}
       </Static>
 
@@ -153,14 +191,16 @@ export function App ({ client }) {
       <InputBar
         onSubmit={submit}
         disabled={busy || exiting}
-        placeholder={state.room ? 'message, or / for commands' : '/join <invite> to get started'}
+        placeholder={state.room ? 'message, or / for commands' : '/dm <key> or /new <name> to get started'}
       />
 
       <StatusLine
         room={state.room}
+        rooms={state.rooms}
+        profile={profile}
         connection={state.connection}
         self={state.self}
-        writable={client.activeRoom?.writable ?? false}
+        writable={client.activeRoom ? client.activeRoom.writable : true}
       />
     </Box>
   )
