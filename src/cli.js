@@ -141,14 +141,30 @@ async function launchUI () {
   process.exit(0)
 }
 
-/** Everything below runs one command against an already-configured profile. */
+/**
+ * Load this profile's identity, creating it the first time.
+ *
+ * No command may dead-end on a fresh install. An identity here is a generated
+ * keypair, not an account with anyone, so there is nothing a wizard can ask
+ * that we cannot decide: make one, say so, and carry on. The interactive setup
+ * is for people who run bare `openchat`; requiring it before `openchat room
+ * create` would make the whole CLI unusable until you had opened the UI once,
+ * which is exactly backwards.
+ */
+async function ensureIdentity (profile, dir) {
+  if (await hasIdentity(dir)) return loadIdentity({ dir })
+
+  const identity = await loadIdentity({ dir }) // creates one on first use
+  console.log(`Set up profile "${profile}" as ${identity.nick} (${identity.publicKeyHex.slice(0, 16)}).`)
+  console.log('Save your recovery phrase before you rely on it: `openchat backup`\n')
+  return identity
+}
+
+/** Run one command against a profile, setting it up first if it is new. */
 async function withClient (fn) {
   const profile = await activeProfile()
   const dir = profileDir(profile)
-
-  if (!(await hasIdentity(dir))) {
-    throw new Error(`profile "${profile}" has no identity yet — run \`openchat\` to set it up`)
-  }
+  await ensureIdentity(profile, dir)
 
   const client = new Client({ dir, profile })
   await client.ready()
@@ -264,13 +280,7 @@ async function contactsCommand (input) {
 async function whoami () {
   const profile = await activeProfile()
   const dir = profileDir(profile)
-
-  if (!(await hasIdentity(dir))) {
-    console.log(`profile:    ${profile} (not set up yet — run \`openchat\`)`)
-    return
-  }
-
-  const identity = await loadIdentity({ dir })
+  const identity = await ensureIdentity(profile, dir)
   console.log(`profile:    ${profile}`)
   console.log(`nick:       ${identity.nick}`)
   console.log(`public key: ${identity.publicKeyHex}`)
@@ -324,10 +334,8 @@ async function logout () {
 }
 
 async function backup () {
-  const dir = await activeDir()
-  if (!(await hasIdentity(dir))) throw new Error('this profile has no identity yet')
-
-  const identity = await loadIdentity({ dir })
+  const profile = await activeProfile()
+  const identity = await ensureIdentity(profile, profileDir(profile))
   console.log('Recovery phrase for your identity — anyone who has it can post as you:\n')
   console.log(`  ${identity.mnemonic}\n`)
   console.log('Store it somewhere safe and offline. Restore with `openchat restore <phrase>`.')

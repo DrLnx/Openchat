@@ -60,7 +60,8 @@ test('the UI renders a live room and paints messages as they arrive', async (t) 
   const initial = screen(app)
   assert.match(initial, /Welcome to openchat/, 'the banner is printed')
   assert.match(initial, /#design/, 'the banner and status line name the room')
-  assert.match(initial, /\/help for commands/, 'the status line says how to get help')
+  assert.match(initial, /\/help/, 'says how to get help')
+  assert.match(initial, /openchat --help/, 'points at the shell commands too')
   // No full-screen panels: the transcript flows into the terminal's own
   // scrollback, so there is no sidebar and no boxed chat pane.
   assert.ok(!initial.includes('MEMBERS'), 'no sidebar')

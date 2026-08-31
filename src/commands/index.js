@@ -25,6 +25,7 @@ export async function runCommand (command, ctx) {
   switch (command.name) {
     case 'help':
       notice(helpText())
+      notice('There is a shell command for most of this too — `openchat --help`.')
       return
 
     case 'whoami':

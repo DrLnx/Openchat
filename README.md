@@ -81,13 +81,26 @@ Without `npm link`, run it as `node bin/openchat.js` wherever the docs below say
 
 ## First run
 
+Two ways in, and neither depends on the other.
+
+**The app**, if you would rather be walked through it:
+
 ```bash
 openchat
 ```
 
-That walks you through setting up an account — which here means generating a
-keypair, not signing up for anything — and shows a recovery phrase. Write it
-down: it is the only way back to your identity, and no server can reissue it.
+That sets up an account — which here means generating a keypair, not signing up
+for anything — and shows your recovery phrase. Write it down: it is the only way
+back to your identity, and no server can reissue it.
+
+**Or just start**, if you know what you want. Any command sets the profile up
+the first time it runs, so nothing has to happen in a particular order:
+
+```bash
+openchat room create design-team
+openchat whoami
+openchat backup                  # your recovery phrase — save this
+```
 
 Then, to talk to someone:
 

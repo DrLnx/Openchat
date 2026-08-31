@@ -474,7 +474,17 @@ export class Room extends EventEmitter {
         reject(new Error('timed out waiting to be admitted — is another member online?'))
       }, timeout)
 
+      // Unref'd so a background wait can never be the reason a command will not
+      // exit: a one-shot `openchat room join` would otherwise sit here for the
+      // full timeout after it had already done its work.
+      timer.unref?.()
+
       const check = () => {
+        if (this.closed) {
+          cleanup()
+          reject(new Error('room closed while waiting to be admitted'))
+          return
+        }
         if (!this.base.writable) return
         cleanup()
         resolve(true)
@@ -482,9 +492,11 @@ export class Room extends EventEmitter {
       const cleanup = () => {
         clearTimeout(timer)
         this.base.off('update', check)
+        this.off('closing', check)
       }
 
       this.base.on('update', check)
+      this.once('closing', check)
       check()
     })
   }
@@ -545,6 +557,7 @@ export class Room extends EventEmitter {
   async close () {
     if (this.closed) return
     this.closed = true
+    this.emit('closing')
     this.base.off('update', this._onUpdate)
     for (const pairing of this._pairings) pairing.close()
     this._pairings.clear()
