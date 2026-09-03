@@ -24,8 +24,8 @@ async function startClient (bootstrap) {
 
 /**
  * Type a line and press enter. The newline has to be a separate write with a
- * tick in between: ink-text-input processes a chunk as one keypress, so
- * "text\r" in a single write arrives as a paste and never submits.
+ * tick in between: a chunk arriving in one write is a paste, not a line
+ * followed by a keypress, so "text\r" in a single write never submits.
  */
 async function type (app, line) {
   app.stdin.write(line)
@@ -58,10 +58,10 @@ test('the UI renders a live room and paints messages as they arrive', async (t) 
   await waitFor(async () => screen(app).includes('#design'), { message: 'the room to appear' })
 
   const initial = screen(app)
-  assert.match(initial, /Welcome to openchat/, 'the banner is printed')
+  assert.match(initial, /end-to-end encrypted/, 'the banner is printed')
   assert.match(initial, /#design/, 'the banner and status line name the room')
-  assert.match(initial, /\/help/, 'says how to get help')
-  assert.match(initial, /openchat --help/, 'points at the shell commands too')
+  assert.match(initial, /the whole keymap/, 'says how to get help')
+  assert.match(initial, /find a room or a conversation/, 'points at the finder')
   // No full-screen panels: the transcript flows into the terminal's own
   // scrollback, so there is no sidebar and no boxed chat pane.
   assert.ok(!initial.includes('MEMBERS'), 'no sidebar')
@@ -96,7 +96,7 @@ test('typing a message sends it; typing a slash command runs it', async (t) => {
 
   await type(app, 'hello world')
   await waitFor(async () => screen(app).includes('hello world'), { message: 'the sent message' })
-  assert.match(screen(app), /> hello world/, 'your own message echoes behind a caret')
+  assert.match(screen(app), /› hello world/, 'your own message echoes behind a caret')
 
   await type(app, '/invite')
   await waitFor(async () => screen(app).includes('openchat1:'), { message: 'the invite output' })
@@ -123,7 +123,7 @@ test('the app can do the things that used to need a shell command', async (t) =>
   const app = render(React.createElement(App, { client: alice, profile: 'work' }))
   t.after(() => app.unmount())
 
-  await waitFor(async () => screen(app).includes('Welcome to openchat'), { message: 'the app to start' })
+  await waitFor(async () => screen(app).includes('end-to-end encrypted'), { message: 'the app to start' })
 
   // A room is created in here, not from a shell command.
   await type(app, '/new design-team')
@@ -232,8 +232,8 @@ test('the UI comes up with no rooms and says what to do', async (t) => {
 
   await sleep(200)
   const frame = screen(app)
-  assert.match(frame, /Welcome to openchat/, 'the banner still prints')
-  assert.match(frame, /nothing open/, 'the banner says there is nothing open')
-  assert.match(frame, /\/dm <key>/, 'tells you how to reach someone')
-  assert.match(frame, /your key/, 'shows your key, which is how people reach you')
+  assert.match(frame, /end-to-end encrypted/, 'the banner still prints')
+  assert.match(frame, /nothing open yet/, 'the banner says there is nothing open')
+  assert.match(frame, /find someone to message/, 'tells you how to reach someone')
+  assert.ok(frame.includes(alice.identity.publicKeyHex), 'shows your key, which is how people reach you')
 })

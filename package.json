@@ -69,7 +69,6 @@
     "hyperdht": "^6.33.2",
     "hyperswarm": "^4.17.0",
     "ink": "^7.1.1",
-    "ink-text-input": "^6.0.0",
     "protomux": "^3.11.0",
     "react": "^19.2.8",
     "sodium-native": "^5.1.0"

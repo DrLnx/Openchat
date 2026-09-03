@@ -52,8 +52,13 @@ test('a new profile is walked through creating an identity', async (t) => {
   }))
   t.after(() => app.unmount())
 
+  await waitFor(async () => screen(app).includes('no server in the middle'), {
+    message: 'the welcome step'
+  })
+  assert.match(screen(app), /your identity is a keypair generated on this machine/, 'explains what an account is here')
+  app.stdin.write('\r')
+
   await waitFor(async () => screen(app).includes('Set up "work"'), { message: 'the first step' })
-  assert.match(screen(app), /No sign-up and no server/, 'explains what an account is here')
   assert.match(screen(app), /Create a new identity/)
   assert.match(screen(app), /Restore one from a recovery phrase/)
 
@@ -63,21 +68,29 @@ test('a new profile is walked through creating an identity', async (t) => {
   await type(app, 'ada')
 
   // The recovery phrase has to be shown before anything else happens.
-  await waitFor(async () => screen(app).includes('Save your recovery phrase'), {
+  await waitFor(async () => screen(app).includes('Write down your recovery phrase'), {
     message: 'the recovery phrase'
   })
   const shown = screen(app)
-  assert.match(shown, /Anyone who has them can post as/, 'says what the phrase is worth')
-  assert.match(shown, /no server that can reset it/, 'says nobody can recover it for you')
+  assert.match(shown, /Anyone who has/, 'says what the phrase is worth')
+  assert.match(shown, /can post as you/, 'says what the phrase is worth')
+  assert.match(shown, /no server that can reset/, 'says nobody can recover it for you')
 
   const identity = await loadIdentity({ dir })
   const words = identity.mnemonic.split(' ')
   assert.equal(words.length, 24)
   assert.ok(shown.includes(words[0]), 'the real phrase is on screen')
 
-  // Acknowledging it starts the client.
+  // The phrase has to be acknowledged before anything moves on: enter alone
+  // does nothing until you have said you wrote it down.
   app.stdin.write('\r')
-  await waitFor(async () => screen(app).includes('Welcome to openchat'), {
+  await sleep(80)
+  assert.match(screen(app), /Write down your recovery phrase/, 'enter alone does not dismiss it')
+
+  app.stdin.write('y')
+  await sleep(80)
+  app.stdin.write('\r')
+  await waitFor(async () => screen(app).includes('end-to-end encrypted'), {
     message: 'the app to start',
     timeout: 30000
   })
@@ -98,11 +111,13 @@ test('an existing identity can be restored from its phrase', async (t) => {
   const first = render(React.createElement(Root, {
     profile: 'first', dir: original, needsOnboarding: true, bootstrap: testnet.bootstrap, host: TEST_HOST
   }))
+  await waitFor(async () => screen(first).includes('no server in the middle'), { message: 'welcome' })
+  first.stdin.write('\r')
   await waitFor(async () => screen(first).includes('Set up'), { message: 'setup' })
   first.stdin.write('\r')
   await waitFor(async () => screen(first).includes('Pick a display name'), { message: 'nick' })
   await type(first, 'ada')
-  await waitFor(async () => screen(first).includes('Save your recovery phrase'), { message: 'phrase' })
+  await waitFor(async () => screen(first).includes('Write down your recovery phrase'), { message: 'phrase' })
   const identity = await loadIdentity({ dir: original })
   first.unmount()
 
@@ -112,6 +127,8 @@ test('an existing identity can be restored from its phrase', async (t) => {
   }))
   t.after(() => app.unmount())
 
+  await waitFor(async () => screen(app).includes('no server in the middle'), { message: 'welcome' })
+  app.stdin.write('\r')
   await waitFor(async () => screen(app).includes('Set up "restored"'), { message: 'setup' })
   app.stdin.write(DOWN)
   await sleep(80)
@@ -122,7 +139,7 @@ test('an existing identity can be restored from its phrase', async (t) => {
   })
   await type(app, identity.mnemonic)
 
-  await waitFor(async () => screen(app).includes('Welcome to openchat'), {
+  await waitFor(async () => screen(app).includes('end-to-end encrypted'), {
     message: 'the app to start',
     timeout: 30000
   })
@@ -141,6 +158,8 @@ test('a bad recovery phrase is rejected rather than silently accepted', async (t
   }))
   t.after(() => app.unmount())
 
+  await waitFor(async () => screen(app).includes('no server in the middle'), { message: 'welcome' })
+  app.stdin.write('\r')
   await waitFor(async () => screen(app).includes('Set up "work"'), { message: 'setup' })
   app.stdin.write(DOWN)
   await sleep(80)

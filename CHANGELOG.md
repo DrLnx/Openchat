@@ -3,6 +3,64 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **A keyboard-first, modal interface**, with LazyVim's vocabulary. `esc` and
+  `i` move between NORMAL and INSERT, space is the leader, and a **which-key**
+  popup lists everything a half-typed chord could still become — so the keymap
+  is learnable by using it rather than by reading it. `?` shows the whole map.
+- **Fuzzy finders** for conversations, rooms, people, room members, commands,
+  keymaps, accounts and the messages in front of you. Scoring follows fzf:
+  boundary and consecutive-character bonuses, matched characters highlighted so
+  you can see why a row matched. Public keys are matched as a prefix rather
+  than fuzzily — every short query is a subsequence of 64 hex characters, so
+  fuzzy-matching keys would make every picker return every row.
+- **Floating windows** — pickers, settings, accounts, the keymap and your
+  identity — drawn over the conversation rather than in an alternate screen, so
+  the transcript stays visible and stays in your terminal's scrollback.
+- **Settings**, per account, written as you change them: six terminal themes
+  (Tokyo Night storm and night, Catppuccin Mocha, Gruvbox Dark, Rosé Pine, and
+  a monochrome one that leaves your terminal's colours alone), timestamp
+  format, compact lines, Nerd Font icons, which-key delay, the auto-download
+  limit, and whether public keys are shown in full — for when you are sharing a
+  screen.
+- **An account switcher.** Accounts are a username and a keypair; the switcher
+  creates, restores and switches between them without leaving the app, and a
+  switch is a real teardown — the swarm and every core close before a different
+  keypair comes up. Nothing is shared between two accounts.
+- **Mouse support inside floating windows**: click a row, scroll the wheel,
+  click outside to dismiss. Reporting is off everywhere else by default, so the
+  terminal keeps its own scrollback and text selection; `mouse: always` opts
+  into the other trade. Reports are filtered out of stdin before Ink sees them,
+  so a click can never be typed into a message.
+- **A rewritten onboarding flow** that explains what an account is here before
+  making you one, and will not move past the recovery phrase until you confirm
+  you have written it down.
+- `/accounts`, `/settings`, `/theme`, `/keys` and `/find`, so every window is
+  reachable by typing as well as by chord.
+
+### Changed
+
+- The command menu completes fuzzily: `/dl` finds `/download`. It matches
+  command names only — matching help text too would turn `/nope` into whichever
+  command's description happened to contain those letters, instead of the error
+  it should be.
+- The message input is openchat's own: readline bindings (`Ctrl+A`/`Ctrl+E`,
+  `Ctrl+W`, `Ctrl+U`) and ↑/↓ history, replacing `ink-text-input`. Every key is
+  now routed by one handler, which is what makes modal editing possible —
+  Ctrl-P switches conversation instead of also typing a `p`.
+- The statusline is a lualine-style row: mode, where you are, connection and
+  peer count, which account you are, and what is unread elsewhere.
+### Fixed
+
+- Names from a transcript loaded off disk. Nick messages were only applied to
+  the member list when they arrived live, so everyone who had spoken before the
+  session started showed up as a hex key until they said something again.
+- Unread counts survive a refresh instead of being cleared whenever the
+  conversation list was re-read.
+
 ## [0.1.0] — 2026-08-31
 
 First release. Serverless, end-to-end encrypted chat for the terminal.
