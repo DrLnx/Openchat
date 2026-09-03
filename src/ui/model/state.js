@@ -34,18 +34,38 @@ export function reduce (state, action) {
     case 'room': {
       const room = action.room
       const rooms = upsertRoom(state.rooms, room)
-      return {
+      const messages = action.messages ? linearize(action.messages) : []
+
+      let next = {
         ...state,
         room,
         rooms: rooms.map((r) => (r.key === room?.key ? { ...r, unread: 0 } : r)),
         // Transcript belongs to a room; switching rooms must not blend them.
-        messages: action.messages ? linearize(action.messages) : [],
+        messages,
         attachments: action.messages ? state.attachments : {}
       }
+
+      // A transcript loaded from disk carries the same nick and presence
+      // messages a live one does, and they have to be applied the same way.
+      // Without this, everyone who spoke before this session started shows up
+      // as a hex key until they say something again.
+      for (const m of messages) next = applyToMembers(next, m)
+      return next
     }
 
-    case 'rooms':
-      return { ...state, rooms: action.rooms }
+    case 'rooms': {
+      // A refresh re-reads the conversation list from the client, which has no
+      // idea what you have and have not read. Carry the counts across, or
+      // switching rooms would quietly mark everything else as read.
+      const unread = new Map(state.rooms.map((r) => [r.key, r.unread || 0]))
+      return {
+        ...state,
+        rooms: action.rooms.map((room) => ({
+          ...room,
+          unread: room.key === state.room?.key ? 0 : (unread.get(room.key) || 0)
+        }))
+      }
+    }
 
     case 'messages': {
       const incoming = Array.isArray(action.messages) ? action.messages : [action.messages]

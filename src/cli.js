@@ -14,6 +14,7 @@ import React from 'react'
 import { render } from 'ink'
 
 import { Root } from './ui/ink/Root.jsx'
+import { MouseContext, createMouseSource } from './ui/ink/mouse.js'
 import { hasIdentity } from './core/identity.js'
 import { profileDir, currentProfile, sanitizeProfile } from './core/store.js'
 import { helpText } from './ui/model/commands.js'
@@ -34,6 +35,11 @@ const USAGE = `openchat ${VERSION} — serverless, end-to-end encrypted chat for
 Everything else happens inside the app:
 
 ${helpText().split('\n').map((l) => '  ' + l).join('\n')}
+
+The interface is keyboard-first and modal, with LazyVim's bindings: esc and i
+move between normal and insert mode, space is the leader key and shows a menu
+of everything you can press from there, and ? shows the whole keymap. Every
+window it opens has a slash command too, so none of that is required.
 
 On first run openchat generates a keypair for you — there is no account to
 sign up for and no server to sign up to. Save the recovery phrase it shows
@@ -95,13 +101,30 @@ async function launch (profileName) {
   const profile = sanitizeProfile(profileName)
   const dir = profileDir(profile)
 
+  // Mouse reports arrive on stdin in band with the keys, so they are filtered
+  // out of the stream before Ink is handed it — otherwise a click would type
+  // an escape sequence into whatever you were writing. Reporting itself stays
+  // off until a floating window turns it on; see ui/ink/mouse.js.
+  const mouse = process.stdin.isTTY ? createMouseSource() : null
+
   // A profile with no identity is not an error — Root shows the setup wizard
   // and hands over to the app once it is done.
   const { waitUntilExit } = render(
-    React.createElement(Root, { profile, dir, needsOnboarding: !(await hasIdentity(dir)) })
+    React.createElement(
+      MouseContext.Provider,
+      { value: mouse },
+      React.createElement(Root, {
+        profile,
+        dir,
+        version: VERSION,
+        needsOnboarding: !(await hasIdentity(dir))
+      })
+    ),
+    mouse ? { stdin: mouse.stdin } : undefined
   )
 
   await waitUntilExit()
+  mouse?.destroy()
   await runShutdown()
   process.exit(0)
 }

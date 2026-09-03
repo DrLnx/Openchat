@@ -11,6 +11,12 @@ encrypted append-only log between themselves. Built on the Holepunch stack —
 [Hyperblobs](https://github.com/holepunchto/hyperblobs) for attachments, and
 [Ink](https://github.com/vadimdemedes/ink) for the interface.
 
+The interface is keyboard-first and modal, with LazyVim's bindings and
+Telescope-style fuzzy finders for rooms, people and commands — but the
+transcript still lives in your terminal's own scrollback, and everything is
+reachable with a mouse or by typing a slash command. See
+[The interface](#the-interface).
+
 **[Try it in a browser →](https://claude.ai/code/artifact/dd5e2dee-e631-4e35-80a2-86c671dacf9c)**
 — a live harness that runs the real protocol, encryption and UI logic without
 needing an install. See [The browser harness](#the-browser-harness) for what it
@@ -104,31 +110,56 @@ Then, inside the app:
 /help                    everything else
 ```
 
+Press **space** in normal mode and a menu shows you every key from there;
+`esc` and `i` move between normal and insert mode the way they do in vim.
+Nothing is only available by chord — every window has a slash command too.
+
 Send an invite **out of band** — a call, a QR code, a channel you already trust.
 Anyone holding it is a member. One of you has to be online while the other
 joins: admitting a member is something an existing member does, and there is no
 server to do it for you.
 
-## Two accounts, two terminals
+## Accounts
 
-An account is a *profile*: its own keys, storage, rooms and contacts. Which one
-you are is a property of the session you start, so it is the one flag openchat
-takes.
+An account is a **username and a keypair**. There is no directory to register in
+and nobody to register with: the username is a label on a directory of your own
+keys, and the key is who you actually are on the wire.
+
+Each account has its own storage, rooms, contacts and settings, and **nothing is
+shared between two of them** — which is the point of having a second one.
+
+`space a` opens the account switcher, or `/accounts`:
+
+```
+╭─◆ Accounts ─────────────────────────────────────────────── 2 ─╮
+│ each one is its own keypair — nothing is shared between them  │
+├───────────────────────────────────────────────────────────────┤
+│ ❯ ● work      ada      03d35f4c5d0f…                   in use │
+│   · alias     nobody   9f21ab77c410…                  2 rooms │
+│ ⏎ switch · n new · r restore · esc close                      │
+╰───────────────────────────────────────────────────────────────╯
+```
+
+- **⏎** switches: the swarm and every core close, and a different keypair comes
+  up in their place.
+- **n** makes a new account — a username, a display name, and a fresh key. It
+  shows you the recovery phrase and will not move on until you say you have
+  written it down.
+- **r** restores one from its 24 words, which is how you carry the *same*
+  identity onto a second machine.
+
+You can also run two at once, one per terminal:
 
 ```bash
-# terminal one
-openchat --profile work
-
-# terminal two
-openchat --profile personal
+openchat --profile work        # terminal one
+openchat --profile personal    # terminal two
 ```
 
 `/whoami` in one gives you its public key; `/dm <key>` in the other opens a
 conversation. No invite is involved — see [Direct messages](#direct-messages).
 
-`/profiles` lists the accounts on this machine. `OPENCHAT_PROFILE` does the same
-job as `--profile`, so a terminal can be pinned to an account by exporting it
-once. Nothing is shared between profiles.
+`OPENCHAT_PROFILE` does the same job as `--profile`, so a terminal can be
+pinned to an account by exporting it once.
 
 ## Trying it without a second machine
 
@@ -233,6 +264,11 @@ app:
 /whoami             show your public key, so others can reach you
 /backup             show your recovery phrase
 /profiles           list the accounts on this machine
+/accounts           switch account, or make another one
+/settings           open settings
+/theme <name>       change the palette
+/keys               show the keymap
+/find               fuzzy-find a room or conversation
 /close /reopen      open or close this room to new members (owner only)
 /transfer <who>     hand the room to someone else (owner only)
 /remove <who>       remove a member and keep them out (owner only)
@@ -241,42 +277,101 @@ app:
 /quit               leave and exit
 ```
 
-Several rooms and DMs stay open at once. **Shift+Tab** moves between them,
-`/switch <name>` jumps directly, and the status line shows how many messages are
-waiting elsewhere. (Shift+Tab rather than Ctrl+N because the text input consumes
-every control chord except Ctrl+C — Ctrl+N would switch *and* type an "n".)
+Several rooms and DMs stay open at once. **Shift+Tab** moves between them
+without leaving the message you are writing, `space f f` finds one by name, and
+the statusline shows how many messages are waiting elsewhere.
 
-Typing `/` opens a command menu that filters as you type; arrow keys move, Tab or
-Enter takes the highlighted command. Ctrl+C quits.
+Typing `/` opens a command menu that filters fuzzily as you type — `/dl` finds
+`/download` — with arrow keys to move and Tab or Enter to take the highlighted
+one. Ctrl+C quits.
 
-The interface follows Claude Code rather than a full-screen terminal app. The
-transcript is written into your shell's own scrollback via Ink's `<Static>` and
-never repainted, so scrolling, selection and copy/paste keep working and a long
-room costs nothing to redraw. Only the prompt is live:
+## The interface
+
+Two ideas, taken from the two terminal programs this is meant to sit next to.
+
+**From Claude Code: the transcript is your scrollback.** It is written into your
+shell's own buffer via Ink's `<Static>` and never repainted, so scrolling,
+selection and copy/paste keep working, and a room with ten thousand messages in
+it costs nothing to redraw. There is no alternate screen and no sidebar. Only
+the prompt and whatever is floating above it are live.
+
+**From LazyVim: modal keys, and a menu that teaches them.** `esc` and `i` move
+between NORMAL and INSERT, space is the leader, and half a chord opens a
+which-key popup listing everything it could still become — so nothing has to be
+memorised in advance.
 
 ```
-╭─────────────────────────────────────────────────────────╮
-│ ✻ Welcome to openchat                                   │
-│                                                         │
-│   end-to-end encrypted · no server · /help for commands │
-│                                                         │
-│   room: #design                                         │
-│   you:  ada (51400cd3)                                  │
-╰─────────────────────────────────────────────────────────╯
-
   ⎿  bob joined
 20:06 ⏺ bob  got the invite — this is over the DHT, no server anywhere
-20:06 > that is the idea. offline members catch up on reconnect.
-╭──────────────────────────────────────────────────────────────────────╮
-│ > /me                                                                │
-╰──────────────────────────────────────────────────────────────────────╯
-  ❯ /members          list the members of this room
-  #design · ● 1 peer · ada         /help for commands · ctrl+c to quit
+20:06 › that is the idea. offline members catch up on reconnect.
+ ╭─⌕ Conversations ──────────────────────────────── 1/4 ─╮
+ │ ⌕ dsg                                                 │
+ ├───────────────────────────────────────────────────────┤
+ │ ❯ #design                                here · yours │
+ │   @grace                                    2 unread  │
+ │ ↑↓ move · ⏎ open · ⇥ insert · esc close               │
+ ╰───────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────╮
+│ ❯ message #design, or / for commands                                   │
+╰────────────────────────────────────────────────────────────────────────╯
+ NORMAL  #design ★  ● 3 peers · ada@work              2 unread  ␣ keys · ? help
 ```
 
-Your own messages echo behind a caret, anything that arrives is introduced by a
-dot in the sender's colour, and detail belonging to the line above — command
-output, an attachment's progress — hangs under an elbow.
+The matched characters light up, so you can see *why* something matched. Scoring
+is fzf's shape rather than a substring test: `dsg` puts `#design` above
+`#wds-logging`, because a match that starts on a word boundary and runs almost
+consecutively is the one you meant.
+
+### Keys
+
+Space is the leader. `?` shows the whole map, and `space f k` searches it.
+
+| | |
+| --- | --- |
+| `esc` / `i` | normal mode / insert mode |
+| `space` | which-key: everything you can press from here |
+| `space f f` | find a room or conversation |
+| `space f d` | find someone to message |
+| `space f c` | command palette |
+| `space f s`, `/` | search this conversation |
+| `space s` | settings |
+| `space a` | accounts |
+| `space k` | your keys and recovery phrase |
+| `space r n` / `space r j` | new room / join with an invite |
+| `space r i` | invite to this room |
+| `shift+tab`, `]b` / `[b`, `L` / `H` | next / previous conversation |
+| `space u t` / `space u c` | toggle timestamps / compact lines |
+| `space q q` | quit |
+| `Ctrl+P`, `Ctrl+K`, `Ctrl+G`, `Ctrl+O` | finder, palette, settings, accounts — from either mode |
+
+While typing, the bindings are readline's: `Ctrl+A`/`Ctrl+E` for the ends of the
+line, `Ctrl+W` to delete a word, `Ctrl+U` to clear it, and ↑/↓ through what you
+have already sent.
+
+### Settings
+
+`space s` or `/settings`. Theme, timestamps, density, mouse behaviour,
+which-key delay, the auto-download limit, and whether public keys are shown in
+full or abbreviated — useful when you are sharing a screen. They are stored per
+account, written as you change them, and take effect immediately.
+
+Six palettes ship, all of them real terminal themes rather than inventions:
+Tokyo Night (storm and night), Catppuccin Mocha, Gruvbox Dark, Rosé Pine, and a
+monochrome one that leaves your terminal's own colours alone.
+
+### Mouse
+
+Clicks, wheel scrolling and click-to-dismiss work inside every floating window.
+
+Outside them, mouse reporting is **off by default**, on purpose: while a
+terminal is reporting the mouse it stops scrolling its own scrollback and stops
+letting you select text, which is a bad trade for a chat log you want to copy
+out of. So reporting is turned on when a float opens and handed straight back
+when it closes. `mouse: always` in settings takes the other trade if you would
+rather have it.
+
+The reports are filtered out of stdin before Ink ever sees them, so a click can
+never end up typed into your message.
 
 ## Security model
 
@@ -355,7 +450,7 @@ than by convention:
 
 | Tier | Location | Contents |
 | --- | --- | --- |
-| **Shared** | `src/protocol/`, `src/ui/model/` | Message schema and codecs, the encrypted envelope, causal ordering, invite encode/decode, slash-command parsing, the chat state reducer. No Node built-ins, no native modules. |
+| **Shared** | `src/protocol/`, `src/ui/model/` | Message schema and codecs, the encrypted envelope, causal ordering, invite encode/decode, slash-command parsing, the chat state reducer, and the interface's own logic: the fuzzy matcher, the keymap and its chord resolver, the message buffer, the settings schema and the float geometry. No Node built-ins, no native modules. |
 | **CLI only** | `src/core/`, `src/ui/ink/` | Corestore, Hypercore, Autobase, Hyperswarm, Hyperblobs, sodium-native, and the Ink components. |
 | **Browser only** | `web/` | A BroadcastChannel transport, simulated members, and a DOM renderer reading the same view-model as the Ink components. |
 
@@ -385,6 +480,21 @@ A few notes on how it fits together:
   (`src/core/blobs.js`). Files under 5MB are fetched automatically; larger ones
   wait for `/download`. The sender's sha256 is verified after every fetch, and
   incoming filenames are sanitised before they touch the download directory.
+- Every keypress is routed by one handler in `src/ui/ink/App.jsx`. A modal
+  interface has to decide what a key *means* before anything acts on it, so no
+  other component reads stdin — which is also why the message buffer
+  (`src/ui/model/editor.js`) is a pure reducer rather than a text-input widget.
+  A widget that grabs stdin for itself types `p` into your message when you
+  meant Ctrl-P, and nothing outside it can take that back.
+- A float knows its own screen position. Terminals report a click as an
+  absolute row and column, and no layout engine hands a component its
+  coordinates, so `src/ui/model/layout.js` computes them up from the bottom of
+  the screen — and both the renderer and the hit test read that one function,
+  which is the only way a click and the row under the pointer can be guaranteed
+  to agree.
+- Accounts (`src/core/accounts.js`) are read straight from the profile
+  directories rather than by opening each one's store, so listing them does not
+  cost a disk full of cores being opened and closed.
 
 ## The browser harness
 

@@ -4,6 +4,8 @@
 // and the browser harness parse identically, and the parser can be tested
 // without a terminal, a network, or a room.
 
+import { rank } from './fuzzy.js'
+
 export const COMMANDS = [
   { name: 'dm', args: '<key|name>', help: 'message someone directly — no invite needed' },
   { name: 'join', args: '<invite>', help: 'join a room from an invite string' },
@@ -20,6 +22,11 @@ export const COMMANDS = [
   { name: 'whoami', args: '', help: 'show your public key, so others can reach you' },
   { name: 'backup', args: '', help: 'show your recovery phrase — the only way back to this identity' },
   { name: 'profiles', args: '', help: 'list the accounts on this machine' },
+  { name: 'accounts', args: '', help: 'switch account, or make another one' },
+  { name: 'settings', args: '', help: 'open settings' },
+  { name: 'theme', args: '<name>', help: 'change the palette' },
+  { name: 'keys', args: '', help: 'show the keymap' },
+  { name: 'find', args: '', help: 'fuzzy-find a room or conversation' },
   { name: 'close', args: '', help: 'close this room to new members (owner only)' },
   { name: 'reopen', args: '', help: 'let people join again (owner only)' },
   { name: 'transfer', args: '<key|name>', help: 'hand the room to someone else (owner only)' },
@@ -75,13 +82,37 @@ export function parseInput (input) {
  * Commands matching what has been typed so far, for the completion menu.
  * Returns the command objects, so the menu can show each one's help text.
  *
- * Once there is a space the command name is settled and the user is typing an
+ * Matching is fuzzy over the *name* — `/dl` finds `/download` — and
+ * deliberately not over the help text. Enter completes whatever the menu has
+ * highlighted, so a menu that matched prose would turn `/nope` into some
+ * command whose description happens to contain those letters, instead of the
+ * error it should be. Searching what a command *does* is the command palette's
+ * job, where nothing is completed on your behalf.
+ *
+ * Once there is a space the command name is settled and you are typing an
  * argument, so the menu gets out of the way.
  */
 export function matchCommands (partial) {
   if (!partial.startsWith('/') || partial.includes(' ')) return []
-  const prefix = partial.slice(1).toLowerCase()
-  return COMMANDS.filter((c) => c.name.startsWith(prefix))
+  const query = partial.slice(1)
+  if (query === '') return COMMANDS
+
+  // An exact prefix always wins its own list: typing `/n` must offer `/new`
+  // before it offers anything that merely contains an n.
+  const prefix = COMMANDS.filter((c) => c.name.startsWith(query.toLowerCase()))
+  const fuzzy = rank(COMMANDS, query, { key: (c) => c.name })
+    .map((match) => match.item)
+    .filter((c) => !prefix.includes(c))
+
+  return [...prefix, ...fuzzy]
+}
+
+/** Where the query matched a command's name, for highlighting the menu. */
+export function matchPositions (partial, name) {
+  const query = partial.replace(/^\//, '')
+  if (!query) return []
+  const match = rank([name], query)[0]
+  return match ? match.positions : []
 }
 
 /** Names matching a partial input, for tab completion. */
