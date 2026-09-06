@@ -43,7 +43,7 @@ const FOOTER = [
  */
 export function Picker ({
   theme, terminal, title, icon, items, placeholder = 'type to filter',
-  onSubmit, onCancel, onSecondary, onEmpty, footer = FOOTER, allowFreeText = false
+  onSubmit, onCancel, onSecondary, onEmpty, footer = FOOTER, allowFreeText = false, backdrop
 }) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
@@ -152,6 +152,7 @@ export function Picker ({
       icon={icon}
       count={matches.length ? `${selected + 1}/${matches.length}` : '0'}
       footer={footer}
+      backdrop={backdrop}
     >
       <FloatRow theme={theme} layout={layout}>
         <Text color={theme.accent}>{theme.icons.search} </Text>
@@ -222,7 +223,7 @@ function Row ({ theme, layout, inner, match, selected }) {
 }
 
 /** A picker for one free-text answer — `/new <name>`, an invite string. */
-export function Prompt ({ theme, terminal, title, icon, placeholder, help, onSubmit, onCancel }) {
+export function Prompt ({ theme, terminal, title, icon, placeholder, help, onSubmit, onCancel, backdrop }) {
   const [value, setValue] = useState('')
   const layout = useMemo(() => floatLayout(terminal, { items: 1, minRows: 7, maxRows: 7 }), [terminal])
 
@@ -246,6 +247,7 @@ export function Prompt ({ theme, terminal, title, icon, placeholder, help, onSub
       title={title}
       icon={icon}
       footer={[{ keys: '⏎', label: 'confirm' }, { keys: 'esc', label: 'cancel' }]}
+      backdrop={backdrop}
     >
       <FloatRow theme={theme} layout={layout}>
         <Text color={theme.accent}>{theme.icons.selected} </Text>

@@ -12,12 +12,30 @@ import { describeChord, groupFor } from '../model/keymap.js'
 
 const COLUMN = 28
 
+/** The popup's width, which is what decides how many entries fit on a row. */
+function geometry (terminal) {
+  // Full width, flush to both edges. It sits directly on top of the prompt,
+  // which is also full width, so anything narrower reads as a stray box rather
+  // than as part of the same piece of furniture.
+  const width = Math.max(40, terminal?.columns ?? 80)
+  const inner = width - 4
+  return { width, inner, columns: Math.max(1, Math.floor(inner / COLUMN)) }
+}
+
+/**
+ * How many rows the popup will take, borders included, so the screen can give
+ * up exactly that many before it is drawn. Zero when there is nothing to show.
+ */
+export function whichKeyHeight (candidates, terminal) {
+  if (!candidates || candidates.length === 0) return 0
+  const distinct = new Set(candidates.map((c) => c.next)).size
+  return Math.ceil(distinct / geometry(terminal).columns) + 2
+}
+
 export function WhichKey ({ theme, terminal, pending, candidates }) {
   if (candidates.length === 0) return null
 
-  const width = Math.max(40, Math.min(terminal.columns - 4, 96))
-  const inner = width - 4
-  const columns = Math.max(1, Math.floor(inner / COLUMN))
+  const { width, inner, columns } = geometry(terminal)
 
   // One entry per next key. Several bindings can share a prefix — `<leader>ff`
   // and `<leader>fd` both sit under `f` — and what you want to see there is the
@@ -39,7 +57,7 @@ export function WhichKey ({ theme, terminal, pending, candidates }) {
   for (let i = 0; i < entries.length; i += columns) rows.push(entries.slice(i, i + columns))
 
   return (
-    <Box flexDirection='column' width={width} marginLeft={1} flexShrink={0}>
+    <Box flexDirection='column' width={width} flexShrink={0}>
       <Text color={theme.borderFocus}>
         <Text>{'\u256d\u2500 '}</Text>
         <Text color={theme.accent} bold>{chord}</Text>

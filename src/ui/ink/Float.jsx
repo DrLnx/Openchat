@@ -1,5 +1,6 @@
 // The chrome every floating window shares: a titled frame, a rule under the
-// prompt, and a row of key hints along the bottom.
+// prompt, and a row of key hints along the bottom — centred over the app, with
+// the conversation still visible above and below it.
 //
 // It is drawn by hand rather than with a bordered <Box> for one reason that
 // matters and one that does not. The one that matters: the app has to know the
@@ -8,9 +9,16 @@
 // here rather than by a layout pass. The one that does not: a title and a
 // counter set into the top border is what Telescope looks like, and no border
 // style gives you that.
+//
+// The `backdrop` is the screen the float is covering, as rows. Ink cannot
+// layer one component over another, so the float takes the rows it needs and
+// re-emits the rest around itself — which is the same thing, seen from the
+// other side.
 
 import React from 'react'
 import { Box, Text } from 'ink'
+
+import { width as visibleWidth } from '../model/text.js'
 
 /**
  * @param {object} props
@@ -21,8 +29,9 @@ import { Box, Text } from 'ink'
  * @param {string} [props.count]   set into the top border on the right
  * @param {{ keys: string, label: string }[]} [props.footer]
  * @param {React.ReactNode} props.children  exactly layout.height - 2 rows
+ * @param {React.ReactElement[]} [props.backdrop]  the rows behind it
  */
-export function Float ({ theme, layout, title, icon, count, footer = [], focused = true, children }) {
+export function Float ({ theme, layout, title, icon, count, footer = [], focused = true, backdrop = [], children }) {
   const edge = focused ? theme.borderFocus : theme.border
   const inner = layout.width - 2
 
@@ -34,8 +43,14 @@ export function Float ({ theme, layout, title, icon, count, footer = [], focused
   const tail = count ? visibleWidth(count) + 2 : 0
   const fill = Math.max(0, layout.width - 5 - visibleWidth(head) - tail)
 
-  return (
-    <Box flexDirection='column' width={layout.width} marginLeft={layout.left - 1} flexShrink={0}>
+  const frame = (
+    <Box
+      key='frame'
+      flexDirection='column'
+      width={layout.width}
+      marginLeft={layout.left - 1}
+      flexShrink={0}
+    >
       <Text color={edge}>
         <Text>{'\u256d\u2500'}</Text>
         <Text color={theme.accent2} bold>{head}</Text>
@@ -64,6 +79,17 @@ export function Float ({ theme, layout, title, icon, count, footer = [], focused
 
       <Text color={edge}>{`╰${rule(inner)}╯`}</Text>
     </Box>
+  )
+
+  // Nothing to cover — a float rendered on its own is just a frame.
+  if (backdrop.length === 0) return frame
+
+  return (
+    <>
+      {backdrop.slice(0, layout.above)}
+      {frame}
+      {backdrop.slice(layout.above + layout.height)}
+    </>
   )
 }
 
@@ -102,16 +128,4 @@ export function FloatFill ({ theme, layout, rows, focused = true }) {
 
 function rule (n) {
   return '─'.repeat(Math.max(0, n))
-}
-
-// Close enough for the box drawing: the strings in a title are short, and the
-// only wide characters that turn up are the optional Nerd Font glyphs, which
-// terminals render in two cells.
-function visibleWidth (text) {
-  let width = 0
-  for (const ch of String(text ?? '')) {
-    const code = ch.codePointAt(0)
-    width += (code >= 0xe000 && code <= 0xf8ff) || code >= 0x1f300 ? 2 : 1
-  }
-  return width
 }

@@ -11,7 +11,9 @@ import {
   BINDINGS, bindingsFor, chordFor, createResolver, describeChord, keysOf, groupFor
 } from '../../src/ui/model/keymap.js'
 import { createBuffer, applyKey, setValue } from '../../src/ui/model/editor.js'
-import { floatLayout, hitTest, scrollTo } from '../../src/ui/model/layout.js'
+import {
+  screenLayout, floatLayout, hitTest, hitSidebar, scrollTo
+} from '../../src/ui/model/layout.js'
 import { read, write, cycle, get, display, SETTINGS } from '../../src/ui/model/settings.js'
 
 const key = (over = {}) => ({
@@ -166,32 +168,100 @@ test('setValue replaces the line, which is what completion does', () => {
   assert.deepEqual(setValue(createBuffer('abc'), '/invite ').value, '/invite ')
 })
 
+// --- screen geometry --------------------------------------------------------
+
+test('the screen adds up to the height of the terminal', () => {
+  const layout = screenLayout({ rows: 40, columns: 120 })
+
+  assert.equal(layout.height, 39, 'one row is left for the newline Ink writes')
+  assert.equal(
+    1 + layout.bodyRows + 3 + 1,
+    layout.height,
+    'title bar, body, prompt and statusline fill it exactly'
+  )
+  assert.equal(layout.bodyTop, 2, 'the body starts under the title bar')
+  assert.equal(layout.statusTop, layout.height, 'the statusline is the last row')
+})
+
+test('the command menu takes its rows from the chat, never from the prompt', () => {
+  const plain = screenLayout({ rows: 40, columns: 120 })
+  const busy = screenLayout({ rows: 40, columns: 120 }, { reserve: 6 })
+
+  assert.equal(busy.bodyRows, plain.bodyRows - 6)
+  assert.equal(busy.inputTop, plain.inputTop, 'the prompt does not move')
+  assert.equal(busy.statusTop, plain.statusTop)
+})
+
+test('the conversation list gives way on a narrow terminal', () => {
+  assert.equal(screenLayout({ rows: 24, columns: 120 }).sidebar, true)
+  assert.equal(screenLayout({ rows: 24, columns: 50 }).sidebar, false)
+  assert.equal(screenLayout({ rows: 24, columns: 120 }, { sidebar: false }).sidebar, false)
+
+  const wide = screenLayout({ rows: 24, columns: 200 })
+  assert.ok(wide.sidebarWidth <= 26, 'and never takes half the screen on a wide one')
+  assert.equal(wide.sidebarWidth + 1 + wide.chatWidth, wide.columns, 'the panes tile the width')
+})
+
 // --- float geometry ---------------------------------------------------------
 
-test('a float sits above the prompt with room to spare', () => {
+test('a float is centred over the body and clear of the prompt', () => {
+  const screen = screenLayout({ rows: 40, columns: 120 })
   const layout = floatLayout({ rows: 40, columns: 120 }, { items: 8 })
 
-  assert.equal(layout.top + layout.height - 1, 36, 'it ends just above the prompt box')
+  assert.ok(layout.top >= screen.bodyTop, 'it starts inside the body')
+  assert.ok(layout.top + layout.height - 1 < screen.inputTop, 'and ends above the prompt')
+  assert.equal(layout.above, layout.top - screen.bodyTop)
+  assert.equal(
+    layout.above + layout.height + layout.below,
+    screen.bodyRows,
+    'the rows it covers plus the ones it leaves are the whole body'
+  )
+  assert.ok(Math.abs(layout.above - layout.below) <= 1, 'centred, to the row')
+
   assert.equal(layout.listTop, layout.top + 3, 'the list starts under the query and the rule')
   assert.equal(layout.listRows, layout.height - 5)
   assert.ok(layout.width <= 120 - 4)
+  assert.equal(layout.left + layout.width - 1 <= 120, true, 'and stays on screen')
 })
 
-test('a float never eats the whole screen', () => {
-  const layout = floatLayout({ rows: 12, columns: 60 }, { items: 40 })
-  assert.ok(layout.height < 12)
-  assert.ok(layout.top >= 1)
+test('a float never eats more than the body it is laid over', () => {
+  for (const rows of [12, 15, 20, 24, 40, 60]) {
+    const screen = screenLayout({ rows, columns: 60 })
+    const layout = floatLayout({ rows, columns: 60 }, { items: 40 })
+
+    assert.ok(
+      layout.height <= screen.bodyRows,
+      `a float on a ${rows}-row terminal fits the body`
+    )
+    assert.ok(layout.top >= 1)
+  }
 })
 
 test('a click maps back to the row it landed on', () => {
   const layout = floatLayout({ rows: 40, columns: 120 }, { items: 8 })
+  const x = layout.left + 4
 
-  assert.equal(hitTest(layout, { x: 10, y: layout.listTop }, 0, 8), 0)
-  assert.equal(hitTest(layout, { x: 10, y: layout.listTop + 3 }, 0, 8), 3)
-  assert.equal(hitTest(layout, { x: 10, y: layout.listTop + 3 }, 5, 20), 8, 'scrolling is accounted for')
-  assert.equal(hitTest(layout, { x: 10, y: layout.top }, 0, 8), null, 'the border is not a row')
-  assert.equal(hitTest(layout, { x: 10, y: layout.listTop + 7 }, 0, 3), null, 'nor is empty space')
+  assert.equal(hitTest(layout, { x, y: layout.listTop }, 0, 8), 0)
+  assert.equal(hitTest(layout, { x, y: layout.listTop + 3 }, 0, 8), 3)
+  assert.equal(hitTest(layout, { x, y: layout.listTop + 3 }, 5, 20), 8, 'scrolling is accounted for')
+  assert.equal(hitTest(layout, { x, y: layout.top }, 0, 8), null, 'the border is not a row')
+  assert.equal(hitTest(layout, { x, y: layout.listTop + 7 }, 0, 3), null, 'nor is empty space')
   assert.equal(hitTest(layout, { x: 200, y: layout.listTop }, 0, 8), null, 'nor is anything beside it')
+})
+
+test('a click in the conversation list maps back to a conversation', () => {
+  const screen = screenLayout({ rows: 40, columns: 120 })
+
+  assert.equal(hitSidebar(screen, { x: 3, y: screen.bodyTop }, 5), 0)
+  assert.equal(hitSidebar(screen, { x: 3, y: screen.bodyTop + 4 }, 5), 4)
+  assert.equal(hitSidebar(screen, { x: 3, y: screen.bodyTop + 9 }, 5), null, 'past the last row')
+  assert.equal(hitSidebar(screen, { x: 3, y: 1 }, 5), null, 'the title bar is not the list')
+  assert.equal(hitSidebar(screen, { x: 90, y: screen.bodyTop }, 5), null, 'nor is the chat pane')
+  assert.equal(
+    hitSidebar(screenLayout({ rows: 40, columns: 50 }), { x: 3, y: 2 }, 5),
+    null,
+    'and a hidden list catches nothing'
+  )
 })
 
 test('scrolling moves as little as it can', () => {

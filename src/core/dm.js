@@ -33,6 +33,9 @@ const TOPIC_CONTEXT = 'openchat:dm:topic:v1'
 const KEY_CONTEXT = 'openchat:dm:enc:v1'
 export const DM_PROTOCOL = 'openchat/dm/1'
 
+/** How often an unpaired side repeats its outbox key on an open connection. */
+const ANNOUNCE_RETRY_MS = 3000
+
 /**
  * Ed25519 → X25519 → shared secret.
  *
@@ -187,19 +190,40 @@ export class DirectChannel extends EventEmitter {
   }
 
   _attach (connection) {
-    const channel = attachChannel({
+    let channel = null
+
+    // Swap outbox keys once the channel is open at both ends, and keep offering
+    // until the other side has told us theirs. A protomux channel drops
+    // anything written before the remote opens its side, and a dropped key here
+    // is a DM that connects and then silently carries nothing.
+    const announce = () => {
+      if (channel && this.outbox) channel.send(this.outbox.key)
+    }
+
+    channel = attachChannel({
       connection,
       protocol: DM_PROTOCOL,
       id: this.topic,
       onMessage: (payload) => {
         this._handleAnnounce(payload).catch((err) => this.emit('error', err))
-      }
+      },
+      onOpen: announce
     })
 
     this._channels.add(channel)
-    connection.once('close', () => this._channels.delete(channel))
+    announce()
 
-    if (this.outbox) channel.send(this.outbox.key)
+    const retry = setInterval(() => {
+      if (this.inbox) clearInterval(retry)
+      else announce()
+    }, ANNOUNCE_RETRY_MS)
+    retry.unref?.()
+
+    connection.once('close', () => {
+      clearInterval(retry)
+      this._channels.delete(channel)
+    })
+
     return channel
   }
 

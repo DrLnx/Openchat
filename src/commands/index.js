@@ -63,10 +63,30 @@ export async function runCommand (command, ctx) {
     }
 
     case 'join': {
-      notice('joining…')
-      const room = await client.joinRoom(command.arg)
+      // Joining is two things that take very different amounts of time. Opening
+      // the room is local and immediate. Being *admitted* to it needs a member
+      // who is already inside to be online to verify your join block, and that
+      // can take seconds or hours — it is not something the joiner can hurry
+      // along. So only the first half happens at the prompt: the room opens,
+      // you can read it and look around, and the admission lands whenever it
+      // lands. Blocking the prompt on the second half is what made joining feel
+      // like it had failed when it was simply waiting.
+      const room = await client.joinRoom(command.arg, { wait: false })
       ctx.refresh?.()
-      notice(`joined #${room.name}`)
+
+      if (room.writable) {
+        notice(`joined #${room.name}`)
+        return
+      }
+
+      notice(`opened #${room.name} — waiting to be admitted.`)
+      notice('this happens by itself as soon as a member is online. carry on in the meantime.')
+
+      room.waitForWritable(0).then(() => {
+        ctx.refresh?.()
+        notice(`admitted to #${room.name} — anything you send now reaches everyone in it.`)
+      }).catch((err) => notice(err.message, 'error'))
+
       return
     }
 

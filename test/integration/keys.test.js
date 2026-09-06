@@ -24,17 +24,24 @@ import { EventEmitter } from 'node:events'
 
 const ESC = String.fromCharCode(27)
 
+/** What ink-testing-library reports as the window it renders into. */
+const TERMINAL = { rows: 24, columns: 100 }
+
 function screen (app) {
   // eslint-disable-next-line no-control-regex
   return (app.lastFrame() || '').replace(/\[[0-9;]*m/g, '')
 }
 
-/** The floating window's own lines. Floats are indented by one; nothing else is. */
+/**
+ * The floating window's own lines. A float is centred over the body, so it is
+ * the only rounded box on screen that is indented — the prompt's box starts at
+ * column zero.
+ */
 function floatFrame (app) {
   const lines = screen(app).split('\n')
-  const top = lines.findIndex((line) => line.startsWith(' ╭─'))
+  const top = lines.findIndex((line) => /^ +╭─/.test(line))
   if (top === -1) return []
-  const end = lines.findIndex((line, i) => i > top && line.startsWith(' ╰'))
+  const end = lines.findIndex((line, i) => i > top && /^ +╰/.test(line))
   return lines.slice(top, end + 1)
 }
 
@@ -276,13 +283,18 @@ test('a click in a picker opens the row it landed on', async (t) => {
   await press(app, [ESC, ' ', 'f', 'f'])
   assert.equal(mouse.enabled, true, 'reporting is turned on for the float')
 
-  // ink-testing-library renders to a stream with no size, so the app lays out
-  // for a conventional terminal — which is exactly what this computes against.
-  const layout = floatLayout({ rows: 24, columns: 80 }, { items: 2, maxRows: 22 })
+  // The float is centred, so where it is depends on how big the terminal is:
+  // the click has to be computed against the same size the app laid out for.
+  const layout = floatLayout(TERMINAL, { items: 2, maxRows: 22 })
   const rows = floatFrame(app)
   assert.equal(rows.length, layout.height, 'the float is the height its geometry claims')
 
-  mouse.events.emit('mouse', { type: 'press', button: 'left', x: 6, y: layout.listTop + 1 })
+  mouse.events.emit('mouse', {
+    type: 'press',
+    button: 'left',
+    x: layout.left + 4,
+    y: layout.listTop + 1
+  })
 
   await waitFor(async () => client.activeTarget?.name === 'operations', {
     message: 'the clicked conversation to open'
@@ -305,9 +317,14 @@ test('a click outside a float dismisses it', async (t) => {
   const before = client.activeId
 
   await press(app, [ESC, ' ', 'f', 'f'])
-  const layout = floatLayout({ rows: 24, columns: 80 }, { items: 2, maxRows: 22 })
+  const layout = floatLayout(TERMINAL, { items: 2, maxRows: 22 })
 
-  mouse.events.emit('mouse', { type: 'press', button: 'left', x: 6, y: layout.top - 2 })
+  mouse.events.emit('mouse', {
+    type: 'press',
+    button: 'left',
+    x: layout.left + 4,
+    y: layout.top - 2
+  })
   await sleep(150)
 
   assert.ok(!screen(app).includes('Conversations'), 'the float is gone')

@@ -32,22 +32,33 @@ export const PAIRING_PROTOCOL = 'openchat/pair/1'
  * @param {string} opts.protocol   protocol name
  * @param {Uint8Array} opts.id     scopes the channel (a room key, a DM topic)
  * @param {(payload: Uint8Array) => void} opts.onMessage
- * @returns {{ send(payload: Uint8Array): void, close(): void }}
+ * @param {() => void} [opts.onOpen]  the remote has opened its side too
+ * @returns {{ send(payload: Uint8Array): void, close(): void, opened: boolean }}
  */
-export function attachChannel ({ connection, protocol, id, onMessage }) {
+export function attachChannel ({ connection, protocol, id, onMessage, onOpen }) {
   // Protomux.from caches the muxer on the stream, so this is the same muxer
   // Corestore's replication stream is already using — we are adding a channel
   // to it, not competing for the socket.
   const mux = Protomux.from(connection)
 
+  // A channel is only usable once *both* ends have opened it. Anything sent
+  // before that is dropped on the floor — which is exactly how a join
+  // announcement goes missing and a joiner sits there apparently ignored.
+  let opened = false
+
   const channel = mux.createChannel({
     protocol,
     id: b4a.from(id),
-    onopen () {},
-    onclose () {}
+    onopen () {
+      opened = true
+      onOpen?.()
+    },
+    onclose () {
+      opened = false
+    }
   })
 
-  if (!channel) return { send () {}, close () {} }
+  if (!channel) return { send () {}, close () {}, opened: false }
 
   const message = channel.addMessage({
     encoding: c.buffer,
@@ -59,9 +70,12 @@ export function attachChannel ({ connection, protocol, id, onMessage }) {
   channel.open()
 
   return {
+    /** True once the remote has opened its side and a send will arrive. */
+    get opened () { return opened && !channel.closed },
     send (payload) {
-      if (channel.closed) return
+      if (channel.closed || !opened) return false
       message.send(b4a.from(payload))
+      return true
     },
     close () {
       if (!channel.closed) channel.close()
@@ -76,18 +90,21 @@ export function attachChannel ({ connection, protocol, id, onMessage }) {
  * @param {import('stream').Duplex} opts.connection  a Hyperswarm connection
  * @param {Uint8Array} opts.roomKey                  scopes the channel
  * @param {(announcement: Uint8Array) => void} opts.onAnnounce
- * @returns {{ announce(block: Uint8Array): void, close(): void }}
+ * @param {() => void} [opts.onReady]  both ends are open; safe to announce
+ * @returns {{ announce(block): boolean, opened: boolean, close(): void }}
  */
-export function attachPairing ({ connection, roomKey, onAnnounce }) {
+export function attachPairing ({ connection, roomKey, onAnnounce, onReady }) {
   const channel = attachChannel({
     connection,
     protocol: PAIRING_PROTOCOL,
     id: roomKey,
-    onMessage: onAnnounce
+    onMessage: onAnnounce,
+    onOpen: onReady
   })
 
   return {
     announce: channel.send,
+    get opened () { return channel.opened },
     close: channel.close
   }
 }

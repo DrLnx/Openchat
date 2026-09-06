@@ -2,6 +2,9 @@
 // data. The plan was explicit about this: if the UI only ever sees fixtures,
 // the bugs that matter (a message that arrives but never paints, a member list
 // that does not update) survive all the way to a user's terminal.
+//
+// The app paints the whole terminal, so `screen()` below is the whole terminal:
+// title bar, conversation list, chat, prompt, statusline, in that order.
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -58,13 +61,17 @@ test('the UI renders a live room and paints messages as they arrive', async (t) 
   await waitFor(async () => screen(app).includes('#design'), { message: 'the room to appear' })
 
   const initial = screen(app)
-  assert.match(initial, /end-to-end encrypted/, 'the banner is printed')
-  assert.match(initial, /#design/, 'the banner and status line name the room')
-  assert.match(initial, /the whole keymap/, 'says how to get help')
-  assert.match(initial, /find a room or a conversation/, 'points at the finder')
-  // No full-screen panels: the transcript flows into the terminal's own
-  // scrollback, so there is no sidebar and no boxed chat pane.
-  assert.ok(!initial.includes('MEMBERS'), 'no sidebar')
+  assert.match(initial, /#design/, 'the title bar and the status line name the room')
+  assert.match(initial, /ROOMS/, 'the conversation list is on screen')
+  assert.match(initial, /member/, 'the title bar says how many people are in it')
+  assert.match(initial, /esc normal/, 'the statusline says how to get out of insert mode')
+
+  // The app paints a frame the height of the terminal, so the prompt and the
+  // statusline are always the last two things on it — that is the property the
+  // whole layout hangs off, and the one a stray row would break.
+  const lines = initial.split('\n')
+  assert.match(lines[lines.length - 1], /INSERT/, 'the statusline is the last row')
+  assert.match(lines[lines.length - 2], /╰/, 'with the prompt directly above it')
 
   // Bob joins for real, over the swarm, and says something.
   await bob.joinRoom(room.invite)
@@ -96,7 +103,7 @@ test('typing a message sends it; typing a slash command runs it', async (t) => {
 
   await type(app, 'hello world')
   await waitFor(async () => screen(app).includes('hello world'), { message: 'the sent message' })
-  assert.match(screen(app), /› hello world/, 'your own message echoes behind a caret')
+  assert.match(screen(app), /› you\s+hello world/, 'your own message echoes behind a caret')
 
   await type(app, '/invite')
   await waitFor(async () => screen(app).includes('openchat1:'), { message: 'the invite output' })
@@ -217,6 +224,49 @@ test('a sent file renders as an attachment, not as raw metadata', async (t) => {
   assert.ok(!frame.includes('blobCoreKey'), 'raw metadata is not leaked into the transcript')
 })
 
+test('joining opens the room at once and waits to be admitted in the background', async (t) => {
+  // The complaint this covers: `/join` used to block the prompt for up to
+  // thirty seconds while it waited for a member to admit you, which looks
+  // exactly like a join that has failed. Opening the room is local and
+  // immediate; being admitted is not, and is not something the joiner can
+  // hurry along, so it must not hold the interface hostage.
+  const testnet = await createTestDht()
+  const owner = await startClient(testnet.bootstrap)
+  const joiner = await startClient(testnet.bootstrap)
+
+  t.after(async () => {
+    await owner.close().catch(() => {})
+    await joiner.close()
+    await testnet.destroy()
+  })
+
+  const room = await owner.createRoom('closed-shop')
+  const invite = room.invite
+
+  // Nobody is home, so admission cannot happen — which is the case that used
+  // to hang.
+  await owner.close()
+
+  const app = render(React.createElement(App, { client: joiner, profile: 'work' }))
+  t.after(() => app.unmount())
+
+  await waitFor(async () => screen(app).includes('nothing open'), { message: 'the app to start' })
+
+  const started = Date.now()
+  await type(app, `/join ${invite}`)
+
+  await waitFor(async () => screen(app).includes('waiting to be admitted'), {
+    message: 'the room to open and say what it is waiting for'
+  })
+
+  const elapsed = Date.now() - started
+  assert.ok(elapsed < 10000, `the prompt came back in ${elapsed}ms rather than blocking`)
+
+  const frame = screen(app)
+  assert.match(frame, /#closed-shop/, 'the room is open and named in the title bar')
+  assert.match(frame, /by itself as soon as a member is online/, 'and says it needs nothing from you')
+})
+
 test('the UI comes up with no rooms and says what to do', async (t) => {
   const testnet = await createTestDht()
   const alice = await startClient(testnet.bootstrap)
@@ -232,8 +282,9 @@ test('the UI comes up with no rooms and says what to do', async (t) => {
 
   await sleep(200)
   const frame = screen(app)
-  assert.match(frame, /end-to-end encrypted/, 'the banner still prints')
-  assert.match(frame, /nothing open yet/, 'the banner says there is nothing open')
+  assert.match(frame, /end-to-end encrypted/, 'the empty pane still introduces itself')
+  assert.match(frame, /nothing open/, 'the title bar says there is nothing open')
   assert.match(frame, /find someone to message/, 'tells you how to reach someone')
+  assert.match(frame, /no rooms yet/, 'and so does the empty conversation list')
   assert.ok(frame.includes(alice.identity.publicKeyHex), 'shows your key, which is how people reach you')
 })

@@ -3,11 +3,12 @@
 // Two things make this trickier than "listen for clicks":
 //
 // 1. Mouse reporting is a terminal mode, and while it is on the terminal stops
-//    scrolling its own scrollback and stops letting you select text with the
-//    mouse. That is a bad trade for a chat log you want to copy out of, so by
-//    default reporting is only on while a floating window is open — click
-//    anywhere in a picker, and the moment it closes your terminal behaves like
-//    a terminal again. `mouse: always` in settings opts into the other trade.
+//    letting you select text with the mouse. Selecting a message to copy it is
+//    worth more than clicking one, so by default reporting is only on while a
+//    floating window is open — click anywhere in a picker, and the moment it
+//    closes your terminal behaves like a terminal again. `mouse: always` in
+//    settings opts into the other trade: the wheel scrolls the transcript and
+//    the conversation list is clickable.
 //
 // 2. The reports arrive on stdin, in band with the keys. Anything that reads
 //    stdin without understanding them — a text input, say — types the escape

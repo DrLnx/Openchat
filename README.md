@@ -67,7 +67,7 @@ you out — because there is nobody in the middle at all.
 <tr><td><b>Encryption</b></td><td>AES-256-GCM bodies, Ed25519 signatures, verified before decrypt</td></tr>
 <tr><td><b>Rooms</b></td><td>An Autobase of per-member logs; offline members replay what they missed</td></tr>
 <tr><td><b>DMs</b></td><td>Derived from two public keys — no invite, and the topic itself is secret</td></tr>
-<tr><td><b>Interface</b></td><td>Keyboard-first and modal, in your terminal's own scrollback</td></tr>
+<tr><td><b>Interface</b></td><td>A full-screen, keyboard-first modal TUI: conversation list, chat, floating windows</td></tr>
 <tr><td><b>Requirements</b></td><td>Node.js 22 or newer. Nothing else.</td></tr>
 </table>
 
@@ -83,7 +83,7 @@ you out — because there is nobody in the middle at all.
 | 💬 | **[Rooms and DMs](#rooms-and-direct-messages)** | Invite-based group rooms, and direct messages that need no invite at all |
 | 📎 | **[Attachments](#attachments)** | Metadata in the log, bytes on demand, checksum verified on arrival |
 | 🎨 | **[Themes and settings](#settings)** | Six real terminal palettes, stored per account, applied as you change them |
-| 🖱️ | **[Mouse where it helps](#mouse)** | Clickable floats, and your terminal's own scrollback everywhere else |
+| 🖱️ | **[Mouse where it helps](#mouse)** | Clickable floats and conversation list; off elsewhere so selection still works |
 
 <br>
 
@@ -222,12 +222,16 @@ Two ideas, taken from the two terminal programs this is meant to sit next to.
 <tr>
 <td width="50%" valign="top">
 
-#### From Claude Code: your scrollback is the transcript
+#### A screen, not a stream of output
 
-Messages are written into your shell's own buffer via Ink's `<Static>` and never
-repainted. Scrolling, selection and copy-paste keep working, and a room with ten
-thousand messages in it costs nothing to redraw. No alternate screen, no sidebar —
-only the prompt and whatever floats above it are live.
+openchat takes the whole terminal — the alternate buffer, the one `vim` uses — and
+paints a frame the size of your window: title bar, conversation list, chat, prompt,
+statusline. Your shell's scrollback is left exactly as you had it, and you get it
+back untouched when you quit.
+
+Nothing scrolls away. The transcript scrolls inside its own pane (`ctrl-u` /
+`ctrl-d`, `G` for the newest), so the conversation list stays put while you read
+back through a room.
 
 </td>
 <td width="50%" valign="top">
@@ -243,22 +247,50 @@ it without you.
 </tr>
 </table>
 
+A floating window is composited over that frame rather than pushed above the
+prompt: it takes the rows it needs out of the middle of the screen, and the
+conversation stays visible above and below it.
+
 ```
-  ⎿  bob joined
-20:06 ⏺ bob  got the invite — this is over the DHT, no server anywhere
-20:06 › that is the idea. offline members catch up on reconnect.
- ╭─⌕ Conversations ──────────────────────────────── 1/4 ─╮
- │ ⌕ dsg                                                 │
- ├───────────────────────────────────────────────────────┤
- │ ❯ #design                                here · yours │
- │   @grace                                    2 unread  │
- │ ↑↓ move · ⏎ open · ⇥ insert · esc close               │
- ╰───────────────────────────────────────────────────────╯
-╭────────────────────────────────────────────────────────────────────────╮
-│ ❯ message #design, or / for commands                                   │
-╰────────────────────────────────────────────────────────────────────────╯
- NORMAL  #design ★  ● 3 peers · ada@work              2 unread  ␣ keys · ? help
+ #design  3 members · yours                                       ● 3 peers
+ ROOMS             │   ⎿  bob joined
+❯ #design        ★ │
+  #ops             │ 20:06 ⏺ bob          got the invite — this is over the
+ DIRECT            │                      DHT, no server anywhere
+  @grace         2 │
+                   │ 20:06 › you          that is the idea. offline members
+                   │      ╭─⌕ Conversations ──────────────────────── 1/4 ─╮
+                   │      │ ⌕ dsg                                         │
+                   │      ├───────────────────────────────────────────────┤
+                   │      │ ❯ #design                        here · yours │
+                   │      │   @grace                            2 unread  │
+                   │      │ ↑↓ move · ⏎ open · ⇥ insert · esc close       │
+                   │      ╰───────────────────────────────────────────────╯
+                   │
+╭─────────────────────────────────────────────────────────────────────────╮
+│ ❯ message #design, or / for commands                                    │
+╰─────────────────────────────────────────────────────────────────────────╯
+ NORMAL  #design ★  ● 3 peers · ada@work          2 unread  ␣ keys · ? help
 ```
+
+The conversation list hides itself below 64 columns, and `space u e` turns it off
+at any width. Nothing on this screen moves anything else: the command menu and the
+which-key popup are drawn *over* the bottom of the conversation rather than pushed
+between it and the prompt, so typing a slash no longer shifts what you were reading.
+
+<br>
+
+### Joining a room
+
+An invite is the whole credential: paste it into `/join` and you are in. There is no
+approval step and nobody to ask — any member who is already online verifies your
+signed join block and admits you, usually in a second or two.
+
+The room opens immediately and you can look around it straight away. Being admitted
+is the part that needs somebody else to be online, so it happens in the background
+and the statusline says `waiting to be admitted` until it lands. Nothing is blocked
+while you wait, and there is no deadline: if nobody is around right now, you are
+admitted whenever one of them next appears.
 
 <br>
 
@@ -297,6 +329,9 @@ Space is the leader. `?` shows the whole map, and `space f k` searches it.
 | `space r i` | invite to this room |
 | `shift+tab`, `]b` / `[b`, `L` / `H` | next / previous conversation |
 | `space u t` / `space u c` | toggle timestamps / compact lines |
+| `space u e` | toggle the conversation list |
+| `ctrl-u` / `ctrl-d`, `page up` / `page down` | read back through the conversation |
+| `gg` / `G` | jump to the start / to the newest |
 | `space q q` | quit |
 | `Ctrl+P` `Ctrl+K` `Ctrl+G` `Ctrl+O` | finder, palette, settings, accounts — from either mode |
 
@@ -331,13 +366,16 @@ when you are sharing a screen.
 ### Mouse
 
 Clicks, wheel scrolling and click-outside-to-dismiss work inside every floating
-window.
+window. A float knows its own position on screen to the row, which is what makes a
+click land on the line you saw under the pointer.
 
 Outside them, mouse reporting is **off by default, on purpose**. While a terminal is
-reporting the mouse it stops scrolling its own scrollback and stops letting you
-select text, which is a bad trade for a chat log you want to copy out of. So
-reporting is switched on when a float opens and handed straight back when it closes.
-`mouse: always` in settings takes the other trade if you would rather have it.
+reporting the mouse it stops letting you select text, and selecting a message to copy
+it is worth more than clicking one. So reporting is switched on when a float opens
+and handed straight back when it closes.
+
+`mouse: always` in settings takes the other trade: the wheel scrolls the transcript
+and clicking a room in the conversation list opens it.
 
 The reports are filtered out of stdin before Ink ever sees them, so a click can
 never end up typed into your message.

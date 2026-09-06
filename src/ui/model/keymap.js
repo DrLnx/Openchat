@@ -68,10 +68,22 @@ export const BINDINGS = [
   { keys: 'H', mode: 'normal', desc: 'Previous conversation', action: 'nav:prev' },
   { keys: 'gd', mode: 'normal', desc: 'Go to the newest unread', action: 'nav:unread' },
 
+  // --- reading back -------------------------------------------------------
+  // The transcript lives in a pane rather than in the terminal's scrollback, so
+  // moving through it is the app's job now. The bindings are the ones a pager
+  // has, because that is what your hands expect of a screen full of text.
+  { keys: '<pageup>', mode: 'both', desc: 'Scroll back a page', action: 'scroll:page' },
+  { keys: '<pagedown>', mode: 'both', desc: 'Scroll forward a page', action: 'scroll:unpage' },
+  { keys: '<C-u>', mode: 'normal', desc: 'Scroll back', action: 'scroll:up' },
+  { keys: '<C-d>', mode: 'normal', desc: 'Scroll forward', action: 'scroll:down' },
+  { keys: 'gg', mode: 'normal', desc: 'Jump to the start', action: 'scroll:home' },
+  { keys: 'G', mode: 'normal', desc: 'Jump to the newest', action: 'scroll:end' },
+
   // --- toggles ------------------------------------------------------------
   { keys: '<leader>ut', mode: 'normal', desc: 'Toggle timestamps', action: 'toggle:timestamps' },
   { keys: '<leader>uc', mode: 'normal', desc: 'Toggle compact lines', action: 'toggle:compact' },
   { keys: '<leader>um', mode: 'normal', desc: 'Toggle mouse capture', action: 'toggle:mouse' },
+  { keys: '<leader>ue', mode: 'normal', desc: 'Toggle the conversation list', action: 'toggle:sidebar' },
 
   // --- modes and exit -----------------------------------------------------
   { keys: 'i', mode: 'normal', desc: 'Write a message', action: 'mode:insert' },

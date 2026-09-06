@@ -15,6 +15,7 @@ import { render } from 'ink'
 
 import { Root } from './ui/ink/Root.jsx'
 import { MouseContext, createMouseSource } from './ui/ink/mouse.js'
+import { enterFullscreen } from './ui/ink/fullscreen.js'
 import { hasIdentity } from './core/identity.js'
 import { profileDir, currentProfile, sanitizeProfile } from './core/store.js'
 import { helpText } from './ui/model/commands.js'
@@ -36,10 +37,12 @@ Everything else happens inside the app:
 
 ${helpText().split('\n').map((l) => '  ' + l).join('\n')}
 
-The interface is keyboard-first and modal, with LazyVim's bindings: esc and i
-move between normal and insert mode, space is the leader key and shows a menu
-of everything you can press from there, and ? shows the whole keymap. Every
-window it opens has a slash command too, so none of that is required.
+openchat takes over the terminal while it is open and gives it back untouched
+on the way out. The interface is keyboard-first and modal, with LazyVim's
+bindings: esc and i move between normal and insert mode, space is the leader
+key and shows a menu of everything you can press from there, and ? shows the
+whole keymap. Every window it opens has a slash command too, so none of that
+is required.
 
 On first run openchat generates a keypair for you — there is no account to
 sign up for and no server to sign up to. Save the recovery phrase it shows
@@ -80,6 +83,34 @@ async function main (argv) {
   return launch(profile.name || (await currentProfile()))
 }
 
+/**
+ * Which DHT to talk to. The public one, unless you point it somewhere else.
+ *
+ * `OPENCHAT_BOOTSTRAP=host:port,...` points it at your own DHT instead — a
+ * bootstrap node on a LAN, say, for a swarm that never touches the public one.
+ * `OPENCHAT_HOST` binds the DHT to one address.
+ *
+ * Worth knowing before you reach for it: a bootstrap bound to loopback does not
+ * work between two processes. Hyperswarm still tries to holepunch, and two
+ * peers that both live at 127.0.0.1 never complete it — they connect and then
+ * nothing crosses. Two accounts on one machine talk to each other fine on a
+ * real DHT; it is only the all-loopback case that silently fails.
+ */
+function network () {
+  const raw = process.env.OPENCHAT_BOOTSTRAP
+  if (!raw) return { bootstrap: undefined, host: process.env.OPENCHAT_HOST }
+
+  const bootstrap = raw.split(',').map((entry) => {
+    const at = entry.lastIndexOf(':')
+    if (at === -1) throw new Error(`OPENCHAT_BOOTSTRAP wants host:port, got "${entry}"`)
+    const port = Number(entry.slice(at + 1))
+    if (!Number.isInteger(port)) throw new Error(`OPENCHAT_BOOTSTRAP has no port in "${entry}"`)
+    return { host: entry.slice(0, at).trim(), port }
+  })
+
+  return { bootstrap, host: process.env.OPENCHAT_HOST }
+}
+
 function parse (argv) {
   const result = { name: null, help: false, version: false }
   const unknown = []
@@ -100,12 +131,17 @@ function parse (argv) {
 async function launch (profileName) {
   const profile = sanitizeProfile(profileName)
   const dir = profileDir(profile)
+  const { bootstrap, host } = network()
 
   // Mouse reports arrive on stdin in band with the keys, so they are filtered
   // out of the stream before Ink is handed it — otherwise a click would type
   // an escape sequence into whatever you were writing. Reporting itself stays
   // off until a floating window turns it on; see ui/ink/mouse.js.
   const mouse = process.stdin.isTTY ? createMouseSource() : null
+
+  // openchat is a screen rather than a stream of output: it takes the terminal
+  // over while it runs and hands it back exactly as it found it.
+  const leaveFullscreen = enterFullscreen()
 
   // A profile with no identity is not an error — Root shows the setup wizard
   // and hands over to the app once it is done.
@@ -116,6 +152,8 @@ async function launch (profileName) {
       React.createElement(Root, {
         profile,
         dir,
+        bootstrap,
+        host,
         version: VERSION,
         needsOnboarding: !(await hasIdentity(dir))
       })
@@ -126,5 +164,6 @@ async function launch (profileName) {
   await waitUntilExit()
   mouse?.destroy()
   await runShutdown()
+  leaveFullscreen()
   process.exit(0)
 }

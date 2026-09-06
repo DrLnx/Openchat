@@ -31,7 +31,7 @@ const FOOTER = [
  * @param {() => void} props.onRestore
  * @param {() => void} props.onCancel
  */
-export function Accounts ({ theme, terminal, accounts, showKeys, onSwitch, onCreate, onRestore, onCancel }) {
+export function Accounts ({ theme, terminal, accounts, showKeys, onSwitch, onCreate, onRestore, onCancel, backdrop }) {
   const [selected, setSelected] = useState(0)
   const [offset, setOffset] = useState(0)
 
@@ -96,6 +96,7 @@ export function Accounts ({ theme, terminal, accounts, showKeys, onSwitch, onCre
       icon={theme.icons.account}
       count={`${accounts.length}`}
       footer={FOOTER}
+      backdrop={backdrop}
     >
       <FloatRow theme={theme} layout={layout}>
         <Text color={theme.dim}>each one is its own keypair — nothing is shared between them</Text>

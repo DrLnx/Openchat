@@ -19,7 +19,7 @@ import { BINDINGS, describeChord } from '../model/keymap.js'
  * @param {string} [props.subtitle]  the fixed row above the rule
  */
 export function InfoFloat ({
-  theme, terminal, title, icon, subtitle, lines, footer, onCancel, onKey, width = 76
+  theme, terminal, title, icon, subtitle, lines, footer, onCancel, onKey, width = 76, backdrop
 }) {
   const [offset, setOffset] = useState(0)
 
@@ -67,6 +67,7 @@ export function InfoFloat ({
       icon={icon}
       count={more ? `${offset + 1}-${offset + visible.length}/${lines.length}` : undefined}
       footer={footer || [{ keys: '↑↓', label: 'scroll' }, { keys: 'esc', label: 'close' }]}
+      backdrop={backdrop}
     >
       <FloatRow theme={theme} layout={layout}>
         <Text color={theme.dim}>{subtitle}</Text>
@@ -88,7 +89,7 @@ export function InfoFloat ({
 }
 
 /** Every binding, grouped the way the keymap file groups them. */
-export function HelpFloat ({ theme, terminal, onCancel }) {
+export function HelpFloat ({ theme, terminal, onCancel, backdrop }) {
   const lines = useMemo(() => {
     const out = []
     const width = Math.max(...BINDINGS.map((b) => describeChord(b.keys).length)) + 2
@@ -133,6 +134,7 @@ export function HelpFloat ({ theme, terminal, onCancel }) {
       subtitle='space is the leader key · every binding is also a slash command'
       lines={lines}
       onCancel={onCancel}
+      backdrop={backdrop}
     />
   )
 }
@@ -141,7 +143,7 @@ export function HelpFloat ({ theme, terminal, onCancel }) {
  * Who you are: the key people reach you on, and — only when you ask for it —
  * the phrase that is the only way back to this identity.
  */
-export function IdentityFloat ({ theme, terminal, identity, profile, onCancel }) {
+export function IdentityFloat ({ theme, terminal, identity, profile, onCancel, backdrop }) {
   const [revealed, setRevealed] = useState(false)
 
   const lines = useMemo(() => {
@@ -186,6 +188,7 @@ export function IdentityFloat ({ theme, terminal, identity, profile, onCancel })
         if (input === 'r') setRevealed((current) => !current)
       }}
       onCancel={onCancel}
+      backdrop={backdrop}
     />
   )
 }

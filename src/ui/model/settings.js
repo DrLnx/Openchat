@@ -66,10 +66,18 @@ export const SETTINGS = [
     default: false
   },
   {
+    key: 'sidebar',
+    section: 'Appearance',
+    label: 'Conversation list',
+    help: 'The rooms and DMs down the left. Hidden below 64 columns either way.',
+    type: 'boolean',
+    default: true
+  },
+  {
     key: 'banner',
     section: 'Appearance',
-    label: 'Startup banner',
-    help: 'The welcome box printed when openchat opens.',
+    label: 'Welcome logo',
+    help: 'The logo on the pane you see before a conversation is open.',
     type: 'boolean',
     default: true
   },
@@ -86,7 +94,7 @@ export const SETTINGS = [
     key: 'mouse',
     section: 'Keys',
     label: 'Mouse',
-    help: 'floats: click inside pickers, keep native scrollback everywhere else.',
+    help: 'floats: click inside pickers. always: wheel scrolls, the list is clickable.',
     type: 'enum',
     values: ['floats', 'always', 'off'],
     default: 'floats'

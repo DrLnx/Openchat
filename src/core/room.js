@@ -29,6 +29,9 @@ import { linearize, nextClock } from '../protocol/order.js'
 import { topicFor, encodeInvite } from '../protocol/invite.js'
 import { ENCRYPTION_KEY_BYTES } from '../protocol/constants.js'
 
+/** How often an unadmitted joiner repeats its request on an open connection. */
+const ANNOUNCE_RETRY_MS = 3000
+
 export class Room extends EventEmitter {
   /**
    * @param {object} opts
@@ -391,21 +394,45 @@ export class Room extends EventEmitter {
   }
 
   _attachPairing (connection) {
-    const pairing = attachPairing({
-      connection,
-      roomKey: this.base.key,
-      onAnnounce: (block) => {
-        this._admit(block).catch((err) => this.emit('error', err))
-      }
-    })
-
-    this._pairings.add(pairing)
-    connection.once('close', () => this._pairings.delete(pairing))
+    let pairing = null
 
     // Announce ourselves to whoever just showed up. Members already in the room
     // ignore a block they have applied before; a member who has never seen us
     // admits us.
-    if (this._joinBlock) pairing.announce(this._joinBlock)
+    //
+    // Announced more than once, on purpose. A protomux channel drops anything
+    // written before the remote has opened its side, so a single announcement
+    // at attach time is a coin flip — win it and you are admitted in a second,
+    // lose it and you sit there forever, connected to a member who never heard
+    // you ask. So we say it when the channel opens, say it again straight away
+    // in case it was already open, and keep saying it while we are still not a
+    // writer. A member who has already applied our block ignores the repeats.
+    const announce = () => {
+      if (pairing && this._joinBlock && !this.base.writable) pairing.announce(this._joinBlock)
+    }
+
+    pairing = attachPairing({
+      connection,
+      roomKey: this.base.key,
+      onAnnounce: (block) => {
+        this._admit(block).catch((err) => this.emit('error', err))
+      },
+      onReady: announce
+    })
+
+    this._pairings.add(pairing)
+    announce()
+
+    // Unref'd so a room waiting to be admitted is never the reason the process
+    // stays up.
+    const retry = setInterval(announce, ANNOUNCE_RETRY_MS)
+    retry.unref?.()
+
+    connection.once('close', () => {
+      clearInterval(retry)
+      this._pairings.delete(pairing)
+    })
+
     return pairing
   }
 
@@ -464,20 +491,29 @@ export class Room extends EventEmitter {
     await this._refresh()
   }
 
-  /** Resolve once we can post, or reject on timeout. */
+  /**
+   * Resolve once we can post, or reject on timeout.
+   *
+   * A timeout of 0 waits indefinitely, which is what the app does after a
+   * `/join`: admission needs another member to be online, that is not something
+   * the joiner can hurry along, and a deadline would only turn "nobody is
+   * around yet" into an error for something that is still going to happen.
+   */
   async waitForWritable (timeout = 30000) {
     if (this.base.writable) return true
 
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        cleanup()
-        reject(new Error('timed out waiting to be admitted — is another member online?'))
-      }, timeout)
+      const timer = timeout
+        ? setTimeout(() => {
+          cleanup()
+          reject(new Error('timed out waiting to be admitted — is another member online?'))
+        }, timeout)
+        : null
 
       // Unref'd so a background wait can never be the reason a command will not
       // exit: a one-shot `openchat room join` would otherwise sit here for the
       // full timeout after it had already done its work.
-      timer.unref?.()
+      timer?.unref?.()
 
       const check = () => {
         if (this.closed) {
@@ -490,7 +526,7 @@ export class Room extends EventEmitter {
         resolve(true)
       }
       const cleanup = () => {
-        clearTimeout(timer)
+        if (timer) clearTimeout(timer)
         this.base.off('update', check)
         this.off('closing', check)
       }

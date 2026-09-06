@@ -34,7 +34,7 @@ function rowsFor () {
   return rows
 }
 
-export function SettingsPanel ({ theme, terminal, values, profile, onChange, onCancel }) {
+export function SettingsPanel ({ theme, terminal, values, profile, onChange, onCancel, backdrop }) {
   const rows = useMemo(rowsFor, [])
   const [selected, setSelected] = useState(1)
   const [offset, setOffset] = useState(0)
@@ -116,6 +116,7 @@ export function SettingsPanel ({ theme, terminal, values, profile, onChange, onC
       icon={theme.icons.account}
       count={profile}
       footer={FOOTER}
+      backdrop={backdrop}
     >
       <FloatRow theme={theme} layout={layout}>
         <Text color={theme.dim}>

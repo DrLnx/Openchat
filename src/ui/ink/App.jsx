@@ -4,31 +4,35 @@
 //
 // Two decisions shape everything below.
 //
-// The transcript is written into the terminal's own scrollback via <Static> and
-// never repainted, the way Claude Code does it. Your scrollback, your selection
-// and your copy-paste all keep working, and a busy room does not cost a full
-// repaint per keystroke. Anything that needs to float — a picker, settings, the
-// which-key menu — is drawn in the live region above the prompt instead of in
-// an alternate screen, so it never takes the conversation away from you.
+// The app owns the whole terminal. It opens on the alternate screen and paints
+// a frame — title bar, conversation list, chat, prompt, statusline — that is
+// exactly as tall as the window, and floats are composited over it rather than
+// pushed above the prompt. Nothing is written to the scrollback, so nothing
+// scrolls away: the transcript scrolls inside its own pane, which is what lets
+// the conversation list stay put while you read back through a room.
 //
 // Every keypress is routed here, once, by one handler. A modal interface has to
 // decide what a key *means* before anything acts on it, and the only way to
 // guarantee that is for nothing else to be listening.
 
 import React, { useEffect, useReducer, useCallback, useState, useMemo, useRef, useContext } from 'react'
-import { Box, Static, useInput, useWindowSize } from 'ink'
+import { useInput, useWindowSize } from 'ink'
 
-import { Banner } from './Banner.jsx'
-import { MessageLine } from './MessageLine.jsx'
+import { welcomeRows } from './Banner.jsx'
+import { Screen } from './Screen.jsx'
+import { Header } from './Header.jsx'
+import { chatRows, chatWindow, maxScroll, scrollToRow } from './Chat.jsx'
+import { sidebarRows } from './Sidebar.jsx'
 import { StatusLine } from './StatusLine.jsx'
-import { InputBar } from './InputBar.jsx'
-import { WhichKey } from './WhichKey.jsx'
+import { InputBar, CommandMenu, menuHeight } from './InputBar.jsx'
+import { WhichKey, whichKeyHeight } from './WhichKey.jsx'
 import { Picker, Prompt } from './Picker.jsx'
 import { SettingsPanel } from './SettingsPanel.jsx'
 import { Accounts } from './Accounts.jsx'
 import { HelpFloat, IdentityFloat } from './Panels.jsx'
 import { createTheme } from './theme.js'
-import { MouseContext } from './mouse.js'
+import { MouseContext, useMouse } from './mouse.js'
+import { screenLayout, hitSidebar } from '../model/layout.js'
 import { initialState, reduce, transcript } from '../model/state.js'
 import { parseInput, matchCommands, COMMANDS } from '../model/commands.js'
 import { createBuffer, applyKey, setValue } from '../model/editor.js'
@@ -38,6 +42,9 @@ import { displayName, shortKey, formatTime } from '../model/format.js'
 import { runCommand } from '../../commands/index.js'
 import { writeConfig } from '../../core/store.js'
 import { listAccounts } from '../../core/accounts.js'
+
+/** How far ctrl-u, ctrl-d and the wheel move the transcript, in rows. */
+const SCROLL_STEP = 3
 
 /** Slash commands that open a floating window instead of running an action. */
 const UI_COMMANDS = {
@@ -72,10 +79,13 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
   const [accounts, setAccounts] = useState([])
   const [busy, setBusy] = useState(false)
   const [exiting, setExiting] = useState(false)
-  // <Static> writes an item exactly once, so the banner must wait for the first
-  // refresh — printed on the very first render it would permanently claim you
-  // are in no room, whatever room you are actually in.
-  const [loaded, setLoaded] = useState(false)
+  // How far back through the transcript you have scrolled, in rows, measured
+  // from the newest line. Zero means the pane follows the conversation.
+  const [scroll, setScroll] = useState(0)
+  // How far a page-up moves: the height of the chat pane, which is not known
+  // until it has been laid out. A ref rather than state, so a resize does not
+  // rebuild every callback in the app.
+  const pageRef = useRef(10)
 
   const notice = useCallback((text, level = 'info') => {
     dispatch({ type: 'notice', text, level })
@@ -125,7 +135,6 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
 
   useEffect(() => {
     refresh()
-    setLoaded(true)
 
     const onMessages = ({ conversationId, messages }) => dispatch({
       type: 'messages',
@@ -329,6 +338,7 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
   const openConversation = useCallback((id) => {
     try {
       client.switchTo(id)
+      setScroll(0)
       refresh()
     } catch (err) {
       notice(err.message, 'error')
@@ -377,11 +387,21 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
         return
       }
 
+      case 'scroll': {
+        if (name === 'end') return setScroll(0)
+        if (name === 'home') return setScroll(Number.MAX_SAFE_INTEGER)
+        if (name === 'page') return setScroll((s) => s + pageRef.current)
+        if (name === 'unpage') return setScroll((s) => Math.max(0, s - pageRef.current))
+        if (name === 'up') return setScroll((s) => s + SCROLL_STEP)
+        return setScroll((s) => Math.max(0, s - SCROLL_STEP))
+      }
+
       case 'toggle': {
         if (name === 'timestamps') {
           return changeSetting('timestamps', settings.timestamps === 'off' ? '24h' : 'off')
         }
         if (name === 'compact') return changeSetting('compact', !settings.compact)
+        if (name === 'sidebar') return changeSetting('sidebar', !settings.sidebar)
         if (name === 'mouse') {
           const next = settings.mouse === 'off' ? 'floats' : settings.mouse === 'floats' ? 'always' : 'off'
           changeSetting('mouse', next)
@@ -481,74 +501,109 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
     return () => clearTimeout(timer)
   }, [exiting])
 
-  // --- transcript ---------------------------------------------------------
+  // --- the screen ---------------------------------------------------------
 
   const entries = transcript(state)
 
-  // <Static> never re-renders what it has already written, so an entry may only
-  // go in once it can no longer change. An attachment mid-download still can,
-  // and so can anything after it — holding the tail back keeps the log in order
-  // rather than letting later messages overtake a slow transfer.
-  const { settled, live } = useMemo(() => {
-    const unsettled = entries.findIndex((entry) => (
-      entry.kind === 'message' &&
-      entry.message.type === 'file' &&
-      state.attachments[entry.message.id]?.status === 'downloading'
-    ))
-    const cut = unsettled === -1 ? entries.length : unsettled
-    return { settled: entries.slice(0, cut), live: entries.slice(cut) }
-  }, [entries, state.attachments])
+  // Which keys are still reachable from a half-typed chord. Computed here
+  // rather than in the popup, because the screen has to give up the rows the
+  // popup is about to take before it decides how tall the chat pane is.
+  const candidates = useMemo(
+    () => (!overlay && whichKey && pending.length > 0
+      ? (resolvers[mode] || resolvers.insert).candidates(pending)
+      : []),
+    [overlay, whichKey, pending, resolvers, mode]
+  )
 
-  // <Static> tracks what it has already printed by *index* (`items.slice(n)`),
-  // so its list has to be append-only. The transcript is sorted by time, and a
-  // message can arrive with a timestamp that sorts before something already on
-  // screen — which would shift every later index and reprint the wrong lines.
-  // Keep a committed list that only ever grows at the end, and hand Static that.
-  const committed = useRef([])
-  const committedKeys = useRef(new Set())
+  // Neither the command menu nor the which-key popup takes a row from the
+  // conversation. They are drawn over the bottom of it, anchored to the prompt,
+  // because a menu that pushes the transcript up the screen means every slash
+  // you type makes the thing you were reading move.
+  const menuRows = menuHeight(matches)
+  const chordRows = whichKeyHeight(candidates, terminal)
 
-  // Switching conversation cannot un-print what is already in the scrollback —
-  // Static has no way to retract a line, and a terminal log should not pretend
-  // otherwise. Mark the switch instead and carry on appending, the way moving
-  // between directories leaves the previous output above you.
-  const conversationId = state.room?.key ?? null
-  const shownConversation = useRef(null)
+  const layout = useMemo(
+    () => screenLayout(terminal, { sidebar: settings.sidebar }),
+    [terminal, settings.sidebar]
+  )
 
-  if (shownConversation.current !== conversationId && conversationId) {
-    const previous = shownConversation.current
-    shownConversation.current = conversationId
-    if (previous) {
-      committed.current.push({
-        kind: 'divider',
-        key: `divider:${previous}:${conversationId}:${committed.current.length}`,
-        label: `${state.room.kind === 'dm' ? theme.icons.dm : theme.icons.room}${state.room.name}`
-      })
-    }
-  }
+  // Everything behind a float loses its colour, so the float reads as the thing
+  // in front rather than as one more panel competing with the conversation.
+  const muted = Boolean(overlay)
 
-  for (const entry of settled) {
-    if (committedKeys.current.has(entry.key)) continue
-    committedKeys.current.add(entry.key)
-    committed.current.push(entry)
-  }
+  const { rows: transcriptRows, anchors } = useMemo(() => chatRows({
+    entries,
+    width: layout.chatWidth,
+    theme,
+    settings,
+    members: state.members,
+    attachments: state.attachments,
+    self: state.self,
+    muted
+  }), [entries, layout.chatWidth, theme, settings, state.members, state.attachments, state.self, muted])
 
-  const renderLine = useCallback((entry) => (
-    <MessageLine
-      key={entry.key}
-      entry={entry}
-      theme={theme}
-      settings={settings}
-      members={state.members}
-      attachments={state.attachments}
-      self={state.self}
-    />
-  ), [theme, settings, state.members, state.attachments, state.self])
+  // With nothing open there is no transcript to show, so the pane says who you
+  // are and how to reach someone — the two things a new terminal cannot guess.
+  const welcome = useMemo(() => (state.room
+    ? null
+    : welcomeRows({
+      theme,
+      self: state.self,
+      profile,
+      version,
+      columns: layout.chatWidth - 2,
+      logo: settings.banner
+    })), [state.room, theme, state.self, profile, version, layout.chatWidth, settings.banner])
+
+  const rows = welcome ?? transcriptRows
+
+  // Scrolling is clamped on every render rather than only when you scroll: the
+  // transcript grows under you, and the window shrinks when you open the
+  // command menu, so a position that was valid a frame ago may not be now.
+  const ceiling = maxScroll(rows.length, layout.bodyRows)
+  const at = Math.min(scroll, ceiling)
+
+  pageRef.current = Math.max(1, layout.bodyRows - 2)
+
+  // Where a search result lives, so picking one scrolls to it. Read through a
+  // ref for the same reason the mouse hit test is: the finder is rebuilt on
+  // every keystroke, and this must not be.
+  const found = useRef({ anchors, total: rows.length, height: layout.bodyRows })
+  found.current = { anchors, total: rows.length, height: layout.bodyRows }
+
+  const revealMessage = useCallback((id) => {
+    const { anchors: at, total, height } = found.current
+    const row = at.get(id)
+    if (row === undefined) return false
+    setScroll(scrollToRow(row, total, height))
+    return true
+  }, [])
+
+  // Something arriving while you are reading back must not shove the line you
+  // are reading up the screen. The scroll position is measured from the end of
+  // the transcript, so when the transcript grows, it has to grow with it.
+  const printed = useRef(0)
+  useEffect(() => {
+    const grew = rows.length - printed.current
+    printed.current = rows.length
+    if (grew > 0) setScroll((current) => (current > 0 ? current + grew : 0))
+  }, [rows.length])
+
+  const chat = chatWindow(rows, layout.bodyRows, at)
+
+  const { rows: sidebar, targets } = useMemo(() => sidebarRows({
+    conversations: state.rooms,
+    activeId: state.room?.key ?? null,
+    columns: layout.sidebarWidth,
+    theme,
+    muted
+  }), [state.rooms, state.room, layout.sidebarWidth, theme, muted])
 
   const uiMode = overlay ? 'float' : mode
 
   // `off` means every float behaves as though the terminal had no mouse at all,
-  // and `always` keeps reporting on so the statusline and the transcript are
-  // clickable too — at the cost of your terminal's own selection and scroll.
+  // and `always` keeps reporting on so the sidebar and the transcript are
+  // clickable too — at the cost of your terminal's own selection.
   const mouseSource = useContext(MouseContext)
   const mouse = settings.mouse === 'off' ? null : mouseSource
 
@@ -558,102 +613,147 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
     return () => mouse.disable()
   }, [mouse, settings.mouse])
 
+  // Held in a ref so the subscription survives a keystroke — this component
+  // re-renders on every character typed.
+  const hit = useRef({ layout, targets })
+  hit.current = { layout, targets }
+
+  const onMouse = useCallback((event) => {
+    if (overlay) return // the float on top owns the mouse while it is open
+
+    if (event.type === 'wheel') return setScroll((s) => Math.max(0, s - event.direction * 3))
+    if (event.type !== 'press' || event.button !== 'left') return
+
+    const row = hitSidebar(hit.current.layout, event, hit.current.targets.length)
+    const id = row === null ? null : hit.current.targets[row]
+    if (id) openConversation(id)
+  }, [overlay, openConversation])
+
+  useMouse(onMouse, settings.mouse === 'always' && !overlay)
+
   return (
     <MouseContext.Provider value={mouse}>
-      <Box flexDirection='column'>
-        <Static items={loaded ? [{ key: '__banner__' }, ...committed.current] : []}>
-          {(entry) => entry.key === '__banner__'
-            ? (settings.banner
-                ? (
-                  <Banner
-                    key='__banner__'
-                    theme={theme}
-                    room={state.room}
-                    self={state.self}
-                    profile={profile}
-                    version={version}
-                  />
-                  )
-                : <Box key='__banner__' />)
-            : renderLine(entry)}
-        </Static>
-
-        {live.length > 0 && !overlay && (
-          <Box flexDirection='column'>{live.map(renderLine)}</Box>
-        )}
-
-        {overlay && (
-          <Overlay
-            // Keyed by which float this is, so opening a second one starts it
-            // empty. Without this React reuses the instance, and the username
-            // you typed into one prompt is still sitting in the next.
-            key={`${overlay.kind}:${overlay.name}`}
-            overlay={overlay}
+      <Screen
+        theme={theme}
+        layout={layout}
+        header={
+          <Header
             theme={theme}
-            terminal={terminal}
-            state={state}
-            client={client}
+            room={state.room}
+            columns={layout.columns}
+            members={Object.keys(state.members).length}
+            peers={state.connection.peers}
+            connection={state.connection.state}
+            muted={muted}
+          />
+        }
+        sidebar={sidebar}
+        chat={chat}
+        overlay={overlay
+          ? (backdrop) => (
+            <Overlay
+              // Keyed by which float this is, so opening a second one starts it
+              // empty. Without this React reuses the instance, and the username
+              // you typed into one prompt is still sitting in the next.
+              key={`${overlay.kind}:${overlay.name}`}
+              backdrop={backdrop}
+              overlay={overlay}
+              theme={theme}
+              terminal={terminal}
+              state={state}
+              client={client}
+              profile={profile}
+              settings={settings}
+              accounts={accounts}
+              accountItems={accountItems}
+              items={{ conversations, people, members, messages, commands: commandItems, keymaps: keymapItems }}
+              notice={notice}
+              submit={submit}
+              close={close}
+              setBuffer={setBuffer}
+              setMode={setMode}
+              setOverlay={setOverlay}
+              openConversation={openConversation}
+              revealMessage={revealMessage}
+              changeSetting={changeSetting}
+              onSwitchAccount={onSwitchAccount}
+              onCreateAccount={onCreateAccount}
+            />
+            )
+          : menuRows > 0
+            ? anchored(layout, menuRows, (
+              <CommandMenu
+                theme={theme}
+                value={buffer.value}
+                matches={matches}
+                selected={menu}
+                columns={layout.columns}
+              />
+            ))
+            : chordRows > 0
+              ? anchored(layout, chordRows, (
+                <WhichKey
+                  theme={theme}
+                  terminal={terminal}
+                  pending={pending}
+                  candidates={candidates}
+                />
+              ))
+              : null}
+        input={
+          <InputBar
+            theme={theme}
+            mode={uiMode}
+            value={buffer.value}
+            cursor={buffer.cursor}
+            busy={busy || exiting}
+            width={layout.columns}
+            placeholder={placeholderFor(state.room, mode)}
+          />
+        }
+        status={
+          <StatusLine
+            theme={theme}
+            mode={uiMode}
+            room={state.room}
+            rooms={state.rooms}
             profile={profile}
-            settings={settings}
-            accounts={accounts}
-            accountItems={accountItems}
-            items={{ conversations, people, members, messages, commands: commandItems, keymaps: keymapItems }}
-            notice={notice}
-            submit={submit}
-            close={close}
-            setBuffer={setBuffer}
-            setMode={setMode}
-            setOverlay={setOverlay}
-            openConversation={openConversation}
-            changeSetting={changeSetting}
-            onSwitchAccount={onSwitchAccount}
-            onCreateAccount={onCreateAccount}
+            connection={state.connection}
+            self={state.self}
+            columns={layout.columns}
+            scrolled={at > 0}
+            mouse={settings.mouse === 'always'}
+            writable={client.activeRoom ? client.activeRoom.writable : true}
           />
-        )}
-
-        {!overlay && whichKey && pending.length > 0 && (
-          <WhichKey
-            theme={theme}
-            terminal={terminal}
-            pending={pending}
-            candidates={(resolvers[mode] || resolvers.insert).candidates(pending)}
-          />
-        )}
-
-        <InputBar
-          theme={theme}
-          mode={uiMode}
-          value={buffer.value}
-          cursor={buffer.cursor}
-          matches={matches}
-          selected={menu}
-          busy={busy || exiting}
-          placeholder={placeholderFor(state.room, mode)}
-        />
-
-        <StatusLine
-          theme={theme}
-          mode={uiMode}
-          room={state.room}
-          rooms={state.rooms}
-          profile={profile}
-          connection={state.connection}
-          self={state.self}
-          mouse={settings.mouse === 'always'}
-          writable={client.activeRoom ? client.activeRoom.writable : true}
-        />
-      </Box>
+        }
+      />
     </MouseContext.Provider>
+  )
+}
+
+/**
+ * Draw something over the bottom of the conversation, keeping the rows above it.
+ *
+ * The command menu and the which-key popup both belong directly above the
+ * prompt and neither should cost the conversation a row, so both are composited
+ * the same way a float is — see Screen.jsx.
+ */
+function anchored (layout, rows, node) {
+  return (backdrop) => (
+    <>
+      {backdrop.slice(0, Math.max(0, layout.bodyRows - rows))}
+      {node}
+    </>
   )
 }
 
 /** Whichever floating window is open. Split out to keep App's render readable. */
 function Overlay ({
-  overlay, theme, terminal, state, client, profile, settings, accounts, accountItems, items,
-  notice, submit, close, setBuffer, setMode, setOverlay, openConversation, changeSetting,
-  onSwitchAccount, onCreateAccount
+  overlay, theme, terminal, backdrop, state, client, profile, settings, accounts, accountItems, items,
+  notice, submit, close, setBuffer, setMode, setOverlay, openConversation, revealMessage,
+  changeSetting, onSwitchAccount, onCreateAccount
 }) {
-  const shared = { theme, terminal, onCancel: close }
+  const shared = { theme, terminal, backdrop, onCancel: close }
 
   if (overlay.kind === 'float') {
     if (overlay.name === 'settings') {
@@ -700,7 +800,7 @@ function Overlay ({
     }
   }
 
-  if (overlay.kind === 'prompt') return <Prompts {...{ overlay, theme, terminal, close, submit, setOverlay, onCreateAccount, notice }} />
+  if (overlay.kind === 'prompt') return <Prompts {...{ overlay, theme, terminal, backdrop, close, submit, setOverlay, onCreateAccount, notice }} />
 
   // --- pickers ------------------------------------------------------------
 
@@ -814,15 +914,16 @@ function Overlay ({
         placeholder: 'what was said',
         footer: [
           { keys: '↑↓', label: 'move' },
-          { keys: '⏎', label: 'quote it below' },
+          { keys: '⏎', label: 'jump to it' },
           { keys: 'esc', label: 'close' }
         ],
         onSubmit: (item) => {
           close()
-          // The transcript is the terminal's own scrollback, so there is
-          // nowhere to jump to. Bringing the line back down to where you are
-          // reading is the honest version of "go to result".
-          notice(`${item.hint}\n${item.label}`)
+          // The transcript is a pane the app owns, so a result is somewhere it
+          // can take you. Only a line that has scrolled out of the transcript
+          // entirely — search reaches further back than the pane keeps — has to
+          // be quoted instead.
+          if (!revealMessage(item.id)) notice(`${item.hint}\n${item.label}`)
         }
       })
 
@@ -832,8 +933,8 @@ function Overlay ({
 }
 
 /** The one-line questions: a room name, an invite, a new account. */
-function Prompts ({ overlay, theme, terminal, close, submit, setOverlay, onCreateAccount, notice }) {
-  const shared = { theme, terminal, onCancel: close }
+function Prompts ({ overlay, theme, terminal, backdrop, close, submit, setOverlay, onCreateAccount, notice }) {
+  const shared = { theme, terminal, backdrop, onCancel: close }
 
   switch (overlay.name) {
     case 'new':
