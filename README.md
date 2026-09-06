@@ -255,7 +255,7 @@ conversation stays visible above and below it.
  #design  3 members · yours                                       ● 3 peers
  ROOMS             │   ⎿  bob joined
 ❯ #design        ★ │
-  #ops             │ 20:06 ⏺ bob          got the invite — this is over the
+  #ops             │ 20:06   bob          got the invite — this is over the
  DIRECT            │                      DHT, no server anywhere
   @grace         2 │
                    │ 20:06 › you          that is the idea. offline members
@@ -280,6 +280,28 @@ between it and the prompt, so typing a slash no longer shifts what you were read
 
 <br>
 
+### Storage
+
+Your messages live in Hypercore logs — that is the database, and it is what lets
+openchat work with no server. Alongside it each account keeps `index.db`, a
+SQLite index built from those logs (Node's built-in `node:sqlite`, no extra
+dependency).
+
+The index is derived and disposable: delete it and it rebuilds on the next run,
+and nothing in it is ever sent to a peer. It exists for the three things a log is
+bad at — searching everything you have ever been told, remembering how far you
+had read, and doing both without walking the log.
+
+```
+~/.openchat/profiles/<account>/
+  identity.json   your keypair — the only irreplaceable file here
+  config.json     rooms, contacts, settings
+  store/          Hypercore logs: the source of truth
+  index.db        SQLite index: search and unread, rebuildable
+```
+
+<br>
+
 ### Joining a room
 
 An invite is the whole credential: paste it into `/join` and you are in. There is no
@@ -291,6 +313,39 @@ is the part that needs somebody else to be online, so it happens in the backgrou
 and the statusline says `waiting to be admitted` until it lands. Nothing is blocked
 while you wait, and there is no deadline: if nobody is around right now, you are
 admitted whenever one of them next appears.
+
+<br>
+
+### Leaving a room
+
+`/leave` announces that you are going and removes the room from this machine.
+`/delete` removes it silently, along with its local history and search index.
+
+Neither reaches anyone else's copy, and openchat does not pretend otherwise:
+there is no server to delete a room *from*. Every member holds the log, so the
+people still in it keep the room and keep what you wrote. Leaving is leaving,
+not erasure.
+
+If you own a room and want it shut to newcomers, `/close` it before you go —
+once you leave, nobody can admit anyone.
+
+<br>
+
+### Two accounts at once
+
+An account can only be open in one place at a time — its log has a single writer,
+so its storage takes an exclusive lock. Running `openchat` in two terminals is
+therefore two *accounts*, not two windows onto one:
+
+```bash
+openchat --profile work      # one terminal
+openchat --profile personal  # another
+```
+
+They share nothing: separate keypairs, separate storage, separate index. To
+message one from the other, run `/whoami` in one and `/dm <that key>` in the
+other — and only in one of them. The person you write to does not have to do
+anything for your message to arrive.
 
 <br>
 
@@ -329,6 +384,7 @@ Space is the leader. `?` shows the whole map, and `space f k` searches it.
 | `space r i` | invite to this room |
 | `shift+tab`, `]b` / `[b`, `L` / `H` | next / previous conversation |
 | `space u t` / `space u c` | toggle timestamps / compact lines |
+| `space e`, `ctrl-e` | move around the conversation list: `j`/`k` move, `⏎` opens, `esc` returns |
 | `space u e` | toggle the conversation list |
 | `ctrl-u` / `ctrl-d`, `page up` / `page down` | read back through the conversation |
 | `gg` / `G` | jump to the start / to the newest |

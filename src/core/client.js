@@ -12,14 +12,18 @@ import path from 'node:path'
 
 import { loadIdentity } from './identity.js'
 import {
-  openStore, readConfig, writeConfig, rememberRoom, roomFromConfig,
+  openStore, readConfig, writeConfig, rememberRoom, roomFromConfig, forgetRoom, forgetDm,
   addContact, removeContact, resolvePeer, rememberDm, profileDir, DEFAULT_PROFILE
 } from './store.js'
 import { createSwarm } from './swarm.js'
 import { createRoom, openRoom } from './room.js'
-import { DirectChannel } from './dm.js'
+import { DirectChannel, inboxTopic, DM_HELLO_PROTOCOL } from './dm.js'
+import { attachChannel } from './pairing.js'
+import { openIndex } from './index-db.js'
+import b4a from 'b4a'
 import { Blobs } from './blobs.js'
 import { decodeInvite } from '../protocol/invite.js'
+import { conversationLabel } from '../ui/model/format.js'
 
 export class Client extends EventEmitter {
   /**
@@ -49,6 +53,10 @@ export class Client extends EventEmitter {
     this.identity = await loadIdentity({ dir: this.dir })
     this.config = await readConfig(this.dir)
 
+    // A derived, disposable view over the logs: search, and how far you had
+    // read. Deleting it costs nothing — see core/index-db.js.
+    this.index = openIndex(this.dir)
+
     if (this.config.nick) this.identity.nick = this.config.nick
 
     this.swarm = await createSwarm({
@@ -61,7 +69,77 @@ export class Client extends EventEmitter {
     this.swarm.on('peer', () => this._emitConnection())
     this.swarm.on('peer-close', () => this._emitConnection())
 
+    this._listenForDms()
+
     return this
+  }
+
+  /**
+   * Be reachable by anyone holding your public key.
+   *
+   * Without this a direct message only works if *both* people open it: the
+   * conversation's topic comes from both identities, so until you know who is
+   * writing to you, you are not listening anywhere they can reach. So every
+   * account also announces one topic derived from its own key alone, and
+   * answers a knock there by opening its side of the conversation.
+   *
+   * Who is knocking needs no protocol of its own. A swarm connection is a Noise
+   * session authenticated to the peer's keypair, and that keypair is derived
+   * from the same seed as their identity — so `remotePublicKey` *is* their
+   * public key, already proven.
+   */
+  _listenForDms () {
+    const topic = inboxTopic(this.identity.publicKey)
+
+    const listen = (connection) => {
+      let hello = null
+
+      hello = attachChannel({
+        connection,
+        protocol: DM_HELLO_PROTOCOL,
+        id: topic,
+        onMessage: (payload) => {
+          const peerKey = b4a.toString(connection.remotePublicKey, 'hex')
+          if (peerKey === this.identity.publicKeyHex) return
+
+          const outbox = payload?.byteLength === 32 ? b4a.toString(payload, 'hex') : null
+          const existing = this.conversations.get(`dm:${peerKey}`)
+
+          // Already talking to them: this is just their key arriving, which the
+          // conversation knows what to do with.
+          if (existing) {
+            existing.channel._handleAnnounce(payload).catch(() => {})
+            hello?.send(existing.channel.outbox.key)
+            return
+          }
+
+          // Opening it must not drag you out of whatever you are reading, so
+          // this deliberately does not make it the active conversation.
+          this._adoptDm(peerKey, { name: null, outbox })
+            .then(async (channel) => {
+              // Answer with our own key over the same channel. Theirs cannot
+              // pair with a conversation channel we only just created.
+              hello?.send(channel.outbox.key)
+
+              await rememberDm(
+                { key: peerKey, name: channel.peerName, outbox: channel.outboxKey },
+                this.dir
+              ).catch(() => {})
+              this.config = await readConfig(this.dir)
+              this.emit('notice', {
+                text: `${channel.name} started a conversation with you`,
+                level: 'info'
+              })
+              this.emit('switched', this.activeId)
+            })
+            .catch((err) => this.emit('notice', { text: err.message, level: 'error' }))
+        }
+      })
+    }
+
+    this.swarm.on('connection', listen)
+    for (const connection of this.swarm.connections) listen(connection)
+    this.swarm.join(topic)
   }
 
   // --- conversations ------------------------------------------------------
@@ -129,6 +207,9 @@ export class Client extends EventEmitter {
    */
   _setActive (id) {
     this.activeId = id
+    // Opening a conversation is what "reading it" means, and the index is where
+    // that is remembered — so the count is still right after a restart.
+    this.markRead(id)
     this.emit('switched', id)
   }
 
@@ -255,6 +336,59 @@ export class Client extends EventEmitter {
     return channel
   }
 
+  /**
+   * Leave a conversation, or simply drop it from this machine.
+   *
+   * The distinction is what other people see. Leaving a room announces it, so
+   * the room knows you are gone; deleting says nothing to anyone. Both remove
+   * it here — the conversation, its stored keys, and its index entries.
+   *
+   * What neither can do is reach anyone else's copy. In a room with no server
+   * there is nowhere central to delete *from*: every member holds the log, and
+   * the ones who are still in it keep everything you wrote. Leaving is leaving,
+   * not erasure, and saying otherwise would be a lie the design cannot keep.
+   *
+   * @param {string} id           conversation id
+   * @param {object} [options]
+   * @param {boolean} [options.announce]  tell the room you are going
+   * @returns {{ kind: string, name: string, announced: boolean }}
+   */
+  async removeConversation (id = this.activeId, { announce = false } = {}) {
+    const entry = this.conversations.get(id)
+    if (!entry) throw new Error('no such conversation')
+
+    const target = entry.room || entry.channel
+    const name = target.name
+    const kind = entry.kind
+    let announced = false
+
+    if (announce && kind === 'room') {
+      try {
+        announced = Boolean(await entry.room.announceLeaving())
+      } catch {
+        // Never a reason to be stuck in a room: if the goodbye cannot be
+        // written — no peers, not a writer, removed already — leave anyway.
+      }
+    }
+
+    await entry.blobs.close().catch(() => {})
+    await target.close().catch(() => {})
+    this.conversations.delete(id)
+
+    if (kind === 'room') await forgetRoom(id, this.dir)
+    else await forgetDm(entry.channel.peerKey, this.dir)
+
+    this.config = await readConfig(this.dir)
+    this.index?.forget(id)
+
+    // Land somewhere real rather than on a conversation that no longer exists.
+    const next = this.conversations.keys().next().value ?? null
+    this.activeId = next
+    this.emit('switched', next)
+
+    return { kind, name, announced }
+  }
+
   // --- contacts -----------------------------------------------------------
 
   /** Resolve a name, a key, or a key prefix to a full public key. */
@@ -366,9 +500,11 @@ export class Client extends EventEmitter {
     this.conversations.set(room.keyHex, entry)
 
     room.on('messages', (messages) => {
+      this._record(room.keyHex, messages)
       this.emit('messages', { conversationId: room.keyHex, roomKey: room.keyHex, messages })
       this._autoDownload(room.keyHex, messages)
     })
+    this._record(room.keyHex, room.messages)
     room.on('member', (author) => this.emit('member', { roomKey: room.keyHex, author }))
     room.on('member-removed', (author) => {
       this.emit('notice', { level: 'warn', text: `${author.slice(0, 8)} was removed from ${room.name}` })
@@ -401,6 +537,7 @@ export class Client extends EventEmitter {
     this.conversations.set(channel.id, entry)
 
     channel.on('messages', (messages) => {
+      this._record(channel.id, messages)
       this.emit('messages', { conversationId: channel.id, messages })
       this._autoDownload(channel.id, messages)
     })
@@ -409,6 +546,7 @@ export class Client extends EventEmitter {
     })
     channel.on('error', (err) => this.emit('notice', { level: 'error', text: err.message }))
 
+    this._record(channel.id, channel.messages)
     await channel.attachSwarm(this.swarm)
     this._announceNick(channel)
     return channel
@@ -522,6 +660,62 @@ export class Client extends EventEmitter {
     this.conversations.clear()
     if (this.swarm) await this.swarm.destroy()
     if (this.store) await this.store.close()
+    if (this.index) this.index.close()
+  }
+
+  // --- the local index ----------------------------------------------------
+
+  /**
+   * File messages away for searching. Never allowed to be fatal: the index is
+   * a convenience, and a chat client that stops delivering messages because
+   * SQLite had an opinion would be a worse one.
+   */
+  _record (conversationId, messages) {
+    if (!this.index || !messages?.length) return
+    try {
+      this.index.record(conversationId, messages)
+    } catch (err) {
+      this.emit('notice', { level: 'warn', text: `could not index messages: ${err.message}` })
+    }
+  }
+
+  /**
+   * Search everything this account has ever been told, not just what is in
+   * front of you.
+   *
+   * @param {string} query
+   * @param {object} [opts]
+   * @param {boolean} [opts.here]  restrict to the conversation you are in
+   */
+  search (query, { here = false, limit = 100 } = {}) {
+    if (!this.index) return []
+    const rows = this.index.search(query, {
+      conversation: here ? this.activeId : undefined,
+      limit
+    })
+
+    return rows.map((row) => ({
+      ...row,
+      conversationName: this._nameOf(row.conversation)
+    }))
+  }
+
+  /** Unread counts per conversation, as remembered across restarts. */
+  unread () {
+    if (!this.index) return new Map()
+    return this.index.unread(this.identity.publicKeyHex)
+  }
+
+  /** Everything in this conversation up to now has been seen. */
+  markRead (conversationId = this.activeId, ts = Date.now()) {
+    if (!this.index || !conversationId) return
+    this.index.markRead(conversationId, ts)
+  }
+
+  _nameOf (conversationId) {
+    const entry = this.conversations.get(conversationId)
+    if (!entry) return null
+    return conversationLabel(entry.kind, entry.kind === 'room' ? entry.room.name : entry.channel.name)
   }
 }
 

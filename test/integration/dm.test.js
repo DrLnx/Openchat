@@ -7,8 +7,21 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import b4a from 'b4a'
 
-import { DirectChannel, deriveChannel, sharedSecret } from '../../src/core/dm.js'
-import { createPeer, createTestDht, waitForMessage, waitFor } from '../helpers.js'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+
+import { DirectChannel, deriveChannel, sharedSecret, inboxTopic } from '../../src/core/dm.js'
+import { Client } from '../../src/core/client.js'
+import { createPeer, createTestDht, TEST_HOST, waitForMessage, waitFor } from '../helpers.js'
+
+async function startClient (bootstrap) {
+  const dir = await mkdtemp(path.join(tmpdir(), 'openchat-dm-'))
+  const client = new Client({ dir, bootstrap, host: TEST_HOST })
+  await client.ready()
+  await client.restore()
+  return client
+}
 
 test('both sides derive the same channel from opposite directions', async (t) => {
   const testnet = await createTestDht()
@@ -152,4 +165,89 @@ test('a message written while the other side is offline lands when they return',
 
   const seen = await waitForMessage(bobSide, (m) => m.body === 'sent before you were ever here')
   assert.equal(seen.author, alice.identity.publicKeyHex)
+})
+
+test('a message reaches someone who has never opened the conversation', async (t) => {
+  // The bug this covers: a conversation's topic is derived from *both*
+  // identities, so the person being written to cannot be listening on it until
+  // they already know who is writing. Sending to someone who had not also run
+  // /dm against your key went nowhere at all — no error, no message, nothing on
+  // their screen. An address you can be reached at is the whole point of
+  // publishing a public key.
+  const testnet = await createTestDht()
+  const alice = await startClient(testnet.bootstrap)
+  const bob = await startClient(testnet.bootstrap)
+
+  t.after(async () => {
+    await alice.close()
+    await bob.close()
+    await testnet.destroy()
+  })
+
+  await bob.setNick('bob')
+
+  // Bob does nothing at all. He has not heard of alice and has opened nothing.
+  assert.equal(bob.conversations.size, 0, 'bob has no conversations')
+
+  const received = []
+  bob.on('messages', ({ messages }) => {
+    for (const m of messages) if (m.type === 'text') received.push(m.body)
+  })
+
+  await alice.openDm(bob.identity.publicKeyHex)
+  await alice.sendText('you never asked for this and should get it anyway')
+
+  await waitFor(async () => received.includes('you never asked for this and should get it anyway'), {
+    message: 'the message to reach bob, who never opened the conversation',
+    timeout: 30000
+  })
+
+  const conversation = bob.conversations.get(`dm:${alice.identity.publicKeyHex}`)
+  assert.ok(conversation, 'and the conversation is now in his list')
+
+  // And it is a conversation, not a one-way drop: he can answer it.
+  const back = []
+  alice.on('messages', ({ messages }) => {
+    for (const m of messages) if (m.type === 'text') back.push(m.body)
+  })
+
+  bob.switchTo(`dm:${alice.identity.publicKeyHex}`)
+  await bob.sendText('and I can reply to it')
+
+  await waitFor(async () => back.includes('and I can reply to it'), {
+    message: "bob's reply to reach alice",
+    timeout: 30000
+  })
+})
+
+test('the inbox topic needs one key, and is not the conversation topic', async (t) => {
+  const testnet = await createTestDht()
+  const alice = await createPeer({ bootstrap: testnet.bootstrap })
+  const bob = await createPeer({ bootstrap: testnet.bootstrap })
+
+  t.after(async () => {
+    await alice.destroy()
+    await bob.destroy()
+    await testnet.destroy()
+  })
+
+  // Anyone holding bob's public key computes the same rendezvous, which is what
+  // makes him reachable without a prior introduction.
+  assert.equal(
+    b4a.toString(inboxTopic(bob.identity.publicKey), 'hex'),
+    b4a.toString(inboxTopic(bob.identity.publicKey), 'hex')
+  )
+
+  // But it is not the conversation, and reveals nothing about it.
+  const channel = deriveChannel(alice.identity.seed, alice.identity.publicKey, bob.identity.publicKey)
+  assert.notEqual(
+    b4a.toString(inboxTopic(bob.identity.publicKey), 'hex'),
+    b4a.toString(channel.topic, 'hex'),
+    'the rendezvous is not the conversation topic'
+  )
+  assert.notEqual(
+    b4a.toString(inboxTopic(bob.identity.publicKey), 'hex'),
+    b4a.toString(channel.encryptionKey, 'hex'),
+    'and certainly not its key'
+  )
 })

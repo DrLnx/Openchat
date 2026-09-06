@@ -9,7 +9,7 @@ import path from 'node:path'
 
 import {
   profileDir, listProfiles, currentProfile, setCurrentProfile,
-  sanitizeProfile, rootDir, DEFAULT_PROFILE
+  sanitizeProfile, rootDir, openStore, AccountInUseError, DEFAULT_PROFILE
 } from '../../src/core/store.js'
 import { Client } from '../../src/core/client.js'
 import { loadIdentity } from '../../src/core/identity.js'
@@ -124,4 +124,34 @@ test('two profiles on one machine can DM each other', async (t) => {
   await waitFor(async () => a.messages.length === b.messages.length, {
     message: 'both sides to converge'
   })
+})
+
+test('an account already open elsewhere says so, and says what to do instead', async (t) => {
+  // Opening openchat in a second terminal without --profile is the obvious
+  // thing to try and it cannot work: an account's message log has one writer,
+  // so its storage takes an exclusive lock. What made it a bad experience was
+  // the error, which was "File descriptor could not be locked" — true, and no
+  // help at all to someone who just wanted a second window.
+  await withHome(t)
+
+  const dir = profileDir('default')
+  const first = await openStore(dir)
+  t.after(() => first.close())
+
+  await assert.rejects(
+    () => openStore(dir),
+    (err) => {
+      assert.ok(err instanceof AccountInUseError, 'it is the error we mean, not a raw lock failure')
+      assert.equal(err.code, 'ACCOUNT_IN_USE')
+      assert.match(err.message, /already open in another terminal/)
+      assert.match(err.message, /--profile/, 'and names the way out')
+      return true
+    }
+  )
+
+  // A different account in the same home opens fine — which is the whole point
+  // of the message above.
+  const second = await openStore(profileDir('other'))
+  t.after(() => second.close())
+  assert.ok(second, 'a second account opens alongside the first')
 })

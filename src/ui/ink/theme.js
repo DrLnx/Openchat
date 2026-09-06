@@ -137,11 +137,15 @@ const PALETTES = {
 // set stays legible on the theme's own background.
 const AUTHOR_KEYS = ['cyan', 'green', 'yellow', 'magenta', 'blue', 'orange', 'teal', 'accent2']
 
+// A note on `incoming`: it is deliberately blank. Somebody else speaking is the
+// ordinary case and does not need marking — the author's name, in their own
+// colour, already says who it is. The marker column is spent on the two things
+// that are not ordinary: a line you wrote, and a line that mentions you.
 const GLYPHS = {
   plain: {
     room: '#',
     dm: '@',
-    incoming: '⏺',
+    incoming: ' ',
     self: '›',
     detail: '⎿',
     error: '✗',
@@ -165,9 +169,15 @@ const GLYPHS = {
     account: '◆'
   },
   nerd: {
-    room: '',
-    dm: '',
-    incoming: '⏺',
+    // Deliberately the same as the plain set. A Nerd Font glyph here buys
+    // nothing — `#` and `@` already say room and person — and costs a great
+    // deal: it is a private-use codepoint, so a terminal without the patched
+    // font draws either nothing at all or a replacement box, and it is two
+    // cells wide in fonts that have it and one in fonts that do not, which
+    // misaligns every row in the conversation list.
+    room: '#',
+    dm: '@',
+    incoming: ' ',
     self: '›',
     detail: '⎿',
     error: '',

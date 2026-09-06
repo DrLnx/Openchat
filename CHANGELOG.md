@@ -18,11 +18,36 @@ All notable changes to this project are documented here. This project follows
   so the conversation list stays put while you read back. A message arriving
   while you are reading no longer shoves the line you are on up the screen, and
   the statusline says when you are not looking at the live end of a room.
-  Searching a conversation now scrolls to the result instead of quoting it.
+  Searching now scrolls to the result instead of quoting it, across
+  conversations — picking a hit from another room opens that room first.
+- **`/leave` and `/delete`.** Leaving a room announces it, so the room sees you
+  go, and takes it off this machine. Deleting says nothing to anyone and clears
+  the conversation, its keys and its search history from here. Neither pretends
+  to do more: there is no server to delete a room *from*, so everyone still in
+  it keeps their copy and keeps what you wrote — the commands say so rather than
+  letting you find out later.
+- **The conversation list is somewhere you can go.** `space e` (or `ctrl-e`
+  while typing) hands it the keyboard: `j`/`k` move, `⏎` opens what the cursor
+  is on and gives the keyboard back, `esc` leaves without opening anything. The
+  cursor starts on the conversation you are already in. The statusline says
+  `LIST` while it has focus, so a key never disappears into a pane you did not
+  mean. The mouse is turned on for as long as the list is focused, the same way
+  it is for a floating window — click a row to open it, click the conversation
+  to come back — so pointing at things costs your terminal's text selection
+  only while you are actually pointing.
+- **A local index over your history** (`index.db` in each account, SQLite via
+  Node's built-in `node:sqlite` — no new dependency). Hypercore remains the
+  source of truth and the only thing peers ever see; this is a derived view that
+  can be deleted at any time and rebuilds itself. It buys three things a log is
+  bad at: full-text search across everything you have ever been told rather than
+  the few hundred lines the UI holds in memory, unread counts that survive
+  closing the app, and both answered instantly. `/search` and `space f s` now
+  search every conversation and will open the one a hit is in.
 - **Nothing on screen moves anything else.** The command menu and the
   which-key popup are drawn over the bottom of the conversation, against the
   prompt, rather than wedged between the two — typing a slash used to shove the
-  whole transcript up the screen. Both are composited the same way a float is,
+  whole transcript up the screen. The which-key popup sits in the bottom right,
+  sized to its contents, where it covers the least of what you are reading. Both are composited the same way a float is,
   so the title bar, the conversation, the prompt and the statusline stay where
   they are.
 - **A keyboard-first, modal interface**, with LazyVim's vocabulary. `esc` and
@@ -77,6 +102,45 @@ All notable changes to this project are documented here. This project follows
 
 ### Fixed
 
+- **A room could be called two different things at once.** The prefix on a
+  conversation name was decided in two places — the theme, for the sidebar,
+  title bar and statusline, and a hardcoded `#` in every notice. With Nerd Font
+  icons switched on the two disagreed: the chrome drew a private-use glyph that
+  most terminals render as nothing, while `/new` and `/rooms` went on printing
+  a literal `#`. One function decides it now, and the Nerd Font set no longer
+  overrides `#` and `@` — they are one cell wide everywhere and already say
+  what they mean.
+- **Leaving or deleting your last conversation hid the confirmation.** With
+  nothing open the pane shows the welcome, which replaced the transcript the
+  notice had just been written to. It now shows both.
+- **Only the owner adds members.** Everyone holding the invite still walks
+  straight in — there is no approval step and nothing to accept — but it is the
+  owner's client that writes them into the room. A member who was let in can no
+  longer let other people in, so a room's membership stays with whoever created
+  it. Like closing, this is enforced by honest clients rather than by the log:
+  the alternative is a rule in `apply()`, which Autobase reapplies whenever it
+  learns of concurrent writes, and a transfer of ownership reordered ahead of a
+  join would silently evict a member who joined legitimately. Losing a real
+  member to a race is the worse failure.
+- **A room being closed could crash the client that closed it.** An
+  announcement arriving during shutdown was answered with an append to a
+  closing Autobase, and the rejection was emitted as an `error` event on a room
+  nobody was listening to — which throws. Knocking now stops before the log
+  goes away, and a late failure with no listener is dropped rather than fatal.
+- **A direct message to someone who had not also messaged you went nowhere.**
+  A conversation's topic is derived from *both* identities, so the person being
+  written to could not be listening on it until they already knew who was
+  writing — the message was encrypted, sent, and delivered to an empty topic,
+  with no error on either side. Every account now also announces one rendezvous
+  derived from its own key alone, which is exactly what a published public key
+  should be good for: an address people can reach you at. Whoever knocks is
+  already proven, because a swarm connection is authenticated to a keypair
+  derived from the same seed as the identity.
+- **Opening openchat twice said "File descriptor could not be locked".** True,
+  and no help at all. An account's log has a single writer, so its storage takes
+  an exclusive lock — that is correct, but the way to find out should not be a
+  message about file descriptors. It now says the account is already open in
+  another terminal and shows the `--profile` line that opens a second one.
 - **A join that could be silently ignored.** A joiner announced its request the
   moment the pairing channel was created, which is before the far end has
   opened its side — and protomux drops anything written before then. Win the

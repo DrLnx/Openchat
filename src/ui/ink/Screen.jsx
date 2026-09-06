@@ -25,11 +25,12 @@ import { Box, Text } from 'ink'
  * @param {React.ReactElement[]} props.sidebar  one element per row
  * @param {React.ReactElement[]} props.chat     exactly layout.bodyRows of them
  * @param {(backdrop: React.ReactElement[]) => React.ReactNode} [props.overlay]
+ * @param {boolean} [props.listFocused]  the conversation list has the keyboard
  * @param {React.ReactElement} props.input
  * @param {React.ReactElement} props.status
  */
 export function Screen ({
-  theme, layout, header, sidebar = [], chat = [], overlay, input, status
+  theme, layout, header, sidebar = [], chat = [], overlay, input, status, listFocused = false
 }) {
   const body = []
 
@@ -43,7 +44,7 @@ export function Screen ({
                 {sidebar[i] ?? <Text> </Text>}
               </Box>
               <Box width={1} height={1} flexShrink={0}>
-                <Text color={overlay ? theme.subtle : theme.border}>│</Text>
+                <Text color={overlay ? theme.subtle : listFocused ? theme.borderFocus : theme.border}>│</Text>
               </Box>
             </>
             )

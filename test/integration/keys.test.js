@@ -330,3 +330,44 @@ test('a click outside a float dismisses it', async (t) => {
   assert.ok(!screen(app).includes('Conversations'), 'the float is gone')
   assert.equal(client.activeId, before, 'and nothing was opened')
 })
+
+test('the conversation list is a place you can go, not just something to look at', async (t) => {
+  const { app, client } = await openApp(t, { rooms: ['design', 'operations', 'book-club'] })
+  const before = client.activeId
+
+  // The list takes the keyboard, and says so rather than leaving you guessing
+  // which pane your keys are going to.
+  await press(app, [ESC, ' ', 'e'], 300)
+  assert.match(screen(app), /LIST/, 'the statusline says where the keyboard is')
+  assert.match(screen(app), /move.*open.*back/, 'and what the keys do there')
+
+  // The cursor starts on the conversation you are in, so moving off it and
+  // opening lands somewhere else. Moving alone opens nothing.
+  await press(app, ['k'])
+  assert.equal(client.activeId, before, 'moving is not opening')
+
+  // Enter opens what the cursor is on and hands the keyboard back, so the next
+  // thing you type is a message rather than a navigation key.
+  await press(app, ['\r'], 300)
+  await waitFor(async () => client.activeId !== before, { message: 'the picked conversation to open' })
+  assert.ok(!screen(app).includes('LIST'), 'and the list gave the keyboard back')
+
+  // Typing goes to the message again, not to the list.
+  await press(app, ['i'])
+  await press(app, ['h', 'j', 'k'], 80)
+  assert.match(screen(app), /hjk/, 'letters are typed, not treated as movement')
+})
+
+test('escape leaves the conversation list without opening anything', async (t) => {
+  const { app, client } = await openApp(t, { rooms: ['design', 'operations'] })
+  const before = client.activeId
+
+  await press(app, [ESC, ' ', 'e'], 300)
+  assert.match(screen(app), /LIST/)
+
+  await press(app, ['k'])
+  await press(app, [ESC], 300)
+
+  assert.ok(!screen(app).includes('LIST'), 'the keyboard came back')
+  assert.equal(client.activeId, before, 'and nothing was opened on the way out')
+})

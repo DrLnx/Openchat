@@ -271,7 +271,7 @@ export class Terminal {
       const marker = document.createElement('span')
       marker.className = 'marker'
       marker.style.color = color
-      marker.textContent = '⏺'
+      marker.textContent = ' '
 
       const who = document.createElement('span')
       who.className = 'who'

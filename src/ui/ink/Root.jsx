@@ -160,9 +160,20 @@ export function Root ({ profile: initialProfile, dir: initialDir, needsOnboardin
   }
 
   if (phase === 'failed') {
+    // Multi-line on purpose: the failures worth explaining — an account already
+    // open in another terminal, most of all — need a sentence about what to do,
+    // not just a sentence about what went wrong.
+    const [first, ...rest] = String(error).split('\n')
+
     return (
-      <Box flexDirection='column' paddingX={1}>
-        <Text color={theme.red}>{theme.icons.error} openchat could not start: {error}</Text>
+      <Box flexDirection='column' paddingX={2} paddingY={1}>
+        <Text color={theme.red}>{theme.icons.error} openchat could not start</Text>
+        <Box marginTop={1} flexDirection='column'>
+          <Text color={theme.fg}>{first}</Text>
+          {rest.map((line, i) => (
+            <Text key={i} color={line.startsWith('openchat ') ? theme.accent : theme.dim}>{line}</Text>
+          ))}
+        </Box>
       </Box>
     )
   }

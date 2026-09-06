@@ -1,6 +1,24 @@
 // Tier 1 — portable presentation helpers. No rendering here, just strings, so
 // the terminal and the browser label things the same way.
 
+/**
+ * What a conversation is called on screen: `#room`, `@person`.
+ *
+ * One function, because the prefix used to be decided in two places — the
+ * theme, for the chrome, and a hardcoded `#` in every notice — and the two
+ * could disagree. They did: with Nerd Font icons switched on, the chrome drew a
+ * glyph most terminals render as nothing, while `/new` and `/rooms` went on
+ * printing a literal `#`. The same room had two names depending on where you
+ * were looking at it.
+ *
+ * `#` and `@` are not decoration. They are the convention every chat client has
+ * used since IRC, they are one cell wide everywhere, and they say which kind of
+ * thing you are looking at without needing a legend.
+ */
+export function conversationLabel (kind, name) {
+  return `${kind === 'dm' ? '@' : '#'}${name ?? ''}`
+}
+
 export function formatTime (ts) {
   const d = new Date(ts)
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`

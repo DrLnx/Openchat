@@ -96,11 +96,47 @@ export function configPath (dir) {
   return path.join(dir, 'config.json')
 }
 
+/**
+ * Open a profile's storage.
+ *
+ * An account can only be open in one process at a time — hypercore takes an
+ * exclusive lock on its storage, and two writers to one log would fork it. That
+ * is the right behaviour, but the error it fails with ("File descriptor could
+ * not be locked") tells you nothing about what you did or what to do instead,
+ * which is a bad way to find out that a second terminal needs a second account.
+ */
 export async function openStore (dir) {
   await mkdir(dir, { recursive: true })
   const store = new Corestore(storePath(dir))
-  await store.ready()
+
+  try {
+    await store.ready()
+  } catch (err) {
+    if (isLocked(err)) throw new AccountInUseError(dir)
+    throw err
+  }
+
   return store
+}
+
+/** Whichever way the storage layer phrases "someone else holds the lock". */
+function isLocked (err) {
+  return /could not be locked|EBUSY|ELOCKED|resource temporarily unavailable/i.test(err?.message || '')
+}
+
+export class AccountInUseError extends Error {
+  constructor (dir) {
+    const profile = path.basename(dir)
+    super(
+      `the account "${profile}" is already open in another terminal.\n` +
+      'An account can only be open once — its message log is a single writer.\n' +
+      'To run a second account alongside it: openchat --profile <another-name>\n' +
+      'Anything you type there is a separate identity, with its own keypair.'
+    )
+    this.name = 'AccountInUseError'
+    this.profile = profile
+    this.code = 'ACCOUNT_IN_USE'
+  }
 }
 
 export function defaultConfig () {
@@ -200,6 +236,15 @@ export async function forgetRoom (roomKeyHex, dir) {
   const config = await readConfig(dir)
   config.rooms = config.rooms.filter((r) => r.key !== roomKeyHex)
   if (config.lastRoom === roomKeyHex) config.lastRoom = config.rooms.at(-1)?.key ?? null
+  await writeConfig(config, dir)
+  return config
+}
+
+/** Drop a direct conversation from the config, the way forgetRoom does. */
+export async function forgetDm (peerKeyHex, dir) {
+  const config = await readConfig(dir)
+  config.dms = (config.dms || []).filter((d) => d.key !== peerKeyHex)
+  if (config.lastRoom === `dm:${peerKeyHex}`) config.lastRoom = null
   await writeConfig(config, dir)
   return config
 }

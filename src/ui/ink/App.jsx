@@ -31,14 +31,14 @@ import { SettingsPanel } from './SettingsPanel.jsx'
 import { Accounts } from './Accounts.jsx'
 import { HelpFloat, IdentityFloat } from './Panels.jsx'
 import { createTheme } from './theme.js'
-import { MouseContext, useMouse } from './mouse.js'
+import { MouseContext, useMouse, useMouseCapture } from './mouse.js'
 import { screenLayout, hitSidebar } from '../model/layout.js'
 import { initialState, reduce, transcript } from '../model/state.js'
 import { parseInput, matchCommands, COMMANDS } from '../model/commands.js'
 import { createBuffer, applyKey, setValue } from '../model/editor.js'
 import { bindingsFor, chordFor, createResolver, describeChord, BINDINGS } from '../model/keymap.js'
 import { read as readSettings, write as writeSetting, THEMES } from '../model/settings.js'
-import { displayName, shortKey, formatTime } from '../model/format.js'
+import { displayName, shortKey, formatTime, conversationLabel } from '../model/format.js'
 import { runCommand } from '../../commands/index.js'
 import { writeConfig } from '../../core/store.js'
 import { listAccounts } from '../../core/accounts.js'
@@ -82,6 +82,13 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
   // How far back through the transcript you have scrolled, in rows, measured
   // from the newest line. Zero means the pane follows the conversation.
   const [scroll, setScroll] = useState(0)
+  // A search hit in another conversation cannot be scrolled to until that
+  // conversation has actually loaded, so the request outlives the keypress.
+  const [revealing, setRevealing] = useState(null)
+  // Which pane has the keyboard. The conversation list is a place you can go,
+  // not just a thing you look at.
+  const [focus, setFocus] = useState('chat')
+  const [picked, setPicked] = useState(0)
   // How far a page-up moves: the height of the chat pane, which is not known
   // until it has been laid out. A ref rather than state, so a resize does not
   // rebuild every callback in the app.
@@ -110,9 +117,16 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
         : null,
       messages: target ? target.messages : []
     })
+    // Unread counts come from the index, so what was waiting for you when you
+    // closed the app is still waiting when you open it.
+    const unread = client.unread()
     dispatch({
       type: 'rooms',
-      rooms: client.conversationList.map((c) => ({ key: c.id, ...c, unread: 0 }))
+      rooms: client.conversationList.map((c) => ({
+        key: c.id,
+        ...c,
+        unread: unread.get(c.id) || 0
+      }))
     })
 
     // In a DM the two participants are known without anyone speaking.
@@ -281,17 +295,20 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
     data: { key }
   })), [state.members, client])
 
-  const messages = useMemo(() => state.messages
-    .filter((m) => m.type === 'text' || m.type === 'file')
-    .slice(-500)
-    .reverse()
-    .map((m) => ({
-      id: m.id,
-      label: m.type === 'file' ? m.name : m.body,
-      hint: `${displayName(state.members[m.author], m.author)} · ${formatTime(m.ts)}`,
-      detail: m.author,
-      data: m
-    })), [state.messages, state.members])
+  // Searching goes to the index, not to what happens to be in memory: the
+  // transcript in front of you is a few hundred lines, and the thing you are
+  // looking for is usually not one of them.
+  const searchMessages = useCallback((query) => client.search(query, { limit: 200 }).map((row) => ({
+    id: row.id,
+    label: row.body,
+    hint: [
+      row.conversationName,
+      displayName(state.members[row.author], row.author),
+      formatTime(row.ts)
+    ].filter(Boolean).join(' · '),
+    detail: row.author,
+    data: row
+  })), [client, state.members])
 
   const commandItems = useMemo(() => COMMANDS.map((c) => ({
     id: c.name,
@@ -387,6 +404,20 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
         return
       }
 
+      case 'focus': {
+        // Toggling: pressing it again puts you back where you were typing.
+        const entering = focus !== 'sidebar'
+        if (entering) {
+          // Start on the conversation you are already in, so the list opens
+          // under your hand rather than at the top of a list you have to
+          // travel back down.
+          const row = hit.current.targets.indexOf(client.activeId)
+          if (row >= 0) setPicked(row)
+        }
+        setFocus(entering ? 'sidebar' : 'chat')
+        return
+      }
+
       case 'scroll': {
         if (name === 'end') return setScroll(0)
         if (name === 'home') return setScroll(Number.MAX_SAFE_INTEGER)
@@ -409,7 +440,7 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
         }
       }
     }
-  }, [client, state.rooms, settings, submit, refresh, notice, openConversation, changeSetting, loadAccounts])
+  }, [client, state.rooms, settings, focus, submit, refresh, notice, openConversation, changeSetting, loadAccounts])
 
   performRef.current = perform
 
@@ -470,6 +501,23 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
       }
     }
 
+    // While the conversation list has the keyboard it owns these keys outright,
+    // in either mode. A pane you can move around in that still types into the
+    // message box is not a pane you have moved into.
+    if (focus === 'sidebar') {
+      if (key.escape || key.leftArrow || input === 'h' || input === 'q') return setFocus('chat')
+      if (key.upArrow || input === 'k' || (key.ctrl && input === 'p')) return moveList(-1)
+      if (key.downArrow || input === 'j' || (key.ctrl && input === 'n')) return moveList(1)
+      if (key.pageUp) return moveList(-5)
+      if (key.pageDown) return moveList(5)
+      if (key.return || key.rightArrow || input === 'l') {
+        openPicked()
+        // Opening one puts you back where you write, which is what you were
+        // going there to do.
+        return setFocus('chat')
+      }
+    }
+
     const resolver = resolvers[mode] || resolvers.insert
     const result = resolver.feed(chordFor(input, key))
 
@@ -488,6 +536,8 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
     }
 
     if (mode !== 'insert') return
+    // A keystroke the list did not claim must still not end up in the message.
+    if (focus === 'sidebar') return
 
     const edit = applyKey(buffer, input, key)
     if (!edit) return
@@ -555,7 +605,11 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
       logo: settings.banner
     })), [state.room, theme, state.self, profile, version, layout.chatWidth, settings.banner])
 
-  const rows = welcome ?? transcriptRows
+  // With nothing open the pane introduces itself — but it must not swallow
+  // what just happened. Leaving or deleting your last conversation lands you
+  // here, and the confirmation for it is a notice, which lives in the
+  // transcript. Show both: the welcome, then whatever has been said since.
+  const rows = welcome ? [...welcome, ...transcriptRows] : transcriptRows
 
   // Scrolling is clamped on every render rather than only when you scroll: the
   // transcript grows under you, and the window shrinks when you open the
@@ -579,6 +633,11 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
     return true
   }, [])
 
+  useEffect(() => {
+    if (!revealing) return
+    if (revealMessage(revealing)) setRevealing(null)
+  }, [revealing, revealMessage, rows.length, state.room?.key])
+
   // Something arriving while you are reading back must not shove the line you
   // are reading up the screen. The scroll position is measured from the end of
   // the transcript, so when the transcript grows, it has to grow with it.
@@ -591,13 +650,51 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
 
   const chat = chatWindow(rows, layout.bodyRows, at)
 
+  const listFocused = focus === 'sidebar' && !overlay && layout.sidebar
+
   const { rows: sidebar, targets } = useMemo(() => sidebarRows({
     conversations: state.rooms,
     activeId: state.room?.key ?? null,
     columns: layout.sidebarWidth,
     theme,
-    muted
-  }), [state.rooms, state.room, layout.sidebarWidth, theme, muted])
+    muted,
+    focused: listFocused,
+    selected: picked
+  }), [state.rooms, state.room, layout.sidebarWidth, theme, muted, listFocused, picked])
+
+  // Only the rows that open something can be moved to; the headings and the
+  // blank line between sections are skipped over rather than landed on.
+  const stops = useMemo(
+    () => targets.map((id, row) => (id ? row : null)).filter((row) => row !== null),
+    [targets]
+  )
+
+  // The list can change under the cursor — a room closes, someone starts a
+  // conversation — so where it points is checked every render rather than only
+  // when you move it.
+  useEffect(() => {
+    if (stops.length === 0) return
+    if (!stops.includes(picked)) setPicked(stops[0])
+  }, [stops, picked])
+
+  // Leaving a list that has nothing in it would trap the keyboard there.
+  useEffect(() => {
+    if (focus === 'sidebar' && (!layout.sidebar || stops.length === 0)) setFocus('chat')
+  }, [focus, layout.sidebar, stops.length])
+
+  const moveList = useCallback((step) => {
+    setPicked((current) => {
+      if (stops.length === 0) return current
+      const at = stops.indexOf(current)
+      const next = at === -1 ? 0 : (at + step + stops.length) % stops.length
+      return stops[next]
+    })
+  }, [stops])
+
+  const openPicked = useCallback(() => {
+    const id = targets[picked]
+    if (id) openConversation(id)
+  }, [targets, picked, openConversation])
 
   const uiMode = overlay ? 'float' : mode
 
@@ -625,17 +722,31 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
     if (event.type !== 'press' || event.button !== 'left') return
 
     const row = hitSidebar(hit.current.layout, event, hit.current.targets.length)
-    const id = row === null ? null : hit.current.targets[row]
-    if (id) openConversation(id)
-  }, [overlay, openConversation])
+    if (row === null) {
+      // A click in the conversation itself is how you get the keyboard back.
+      if (focus === 'sidebar') setFocus('chat')
+      return
+    }
 
-  useMouse(onMouse, settings.mouse === 'always' && !overlay)
+    const id = hit.current.targets[row]
+    if (!id) return
+    setPicked(row)
+    openConversation(id)
+  }, [overlay, openConversation, focus])
+
+  // Reporting is normally only on while a float is open, so that the terminal
+  // keeps its own text selection. A focused conversation list is the same kind
+  // of moment: you asked to point at something, so the mouse is turned on for
+  // as long as you are there.
+  useMouseCapture(listFocused && settings.mouse !== 'off')
+  useMouse(onMouse, (settings.mouse === 'always' || listFocused) && !overlay)
 
   return (
     <MouseContext.Provider value={mouse}>
       <Screen
         theme={theme}
         layout={layout}
+        listFocused={listFocused}
         header={
           <Header
             theme={theme}
@@ -666,7 +777,7 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
               settings={settings}
               accounts={accounts}
               accountItems={accountItems}
-              items={{ conversations, people, members, messages, commands: commandItems, keymaps: keymapItems }}
+              items={{ conversations, people, members, searchMessages, commands: commandItems, keymaps: keymapItems }}
               notice={notice}
               submit={submit}
               close={close}
@@ -674,7 +785,7 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
               setMode={setMode}
               setOverlay={setOverlay}
               openConversation={openConversation}
-              revealMessage={revealMessage}
+              reveal={setRevealing}
               changeSetting={changeSetting}
               onSwitchAccount={onSwitchAccount}
               onCreateAccount={onCreateAccount}
@@ -722,6 +833,7 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
             self={state.self}
             columns={layout.columns}
             scrolled={at > 0}
+            listFocused={listFocused}
             mouse={settings.mouse === 'always'}
             writable={client.activeRoom ? client.activeRoom.writable : true}
           />
@@ -750,7 +862,7 @@ function anchored (layout, rows, node) {
 /** Whichever floating window is open. Split out to keep App's render readable. */
 function Overlay ({
   overlay, theme, terminal, backdrop, state, client, profile, settings, accounts, accountItems, items,
-  notice, submit, close, setBuffer, setMode, setOverlay, openConversation, revealMessage,
+  notice, submit, close, setBuffer, setMode, setOverlay, openConversation, reveal,
   changeSetting, onSwitchAccount, onCreateAccount
 }) {
   const shared = { theme, terminal, backdrop, onCancel: close }
@@ -908,10 +1020,10 @@ function Overlay ({
 
     case 'messages':
       return picker({
-        title: 'Search this conversation',
+        title: 'Search everything',
         icon: theme.icons.search,
-        items: items.messages,
-        placeholder: 'what was said',
+        onSearch: items.searchMessages,
+        placeholder: 'anything anyone has said to you',
         footer: [
           { keys: '↑↓', label: 'move' },
           { keys: '⏎', label: 'jump to it' },
@@ -919,11 +1031,11 @@ function Overlay ({
         ],
         onSubmit: (item) => {
           close()
-          // The transcript is a pane the app owns, so a result is somewhere it
-          // can take you. Only a line that has scrolled out of the transcript
-          // entirely — search reaches further back than the pane keeps — has to
-          // be quoted instead.
-          if (!revealMessage(item.id)) notice(`${item.hint}\n${item.label}`)
+          // A hit can be in a conversation you are not looking at, so open that
+          // first; the jump itself has to wait for it to load.
+          const target = item.data?.conversation
+          if (target && target !== client.activeId) openConversation(target)
+          reveal(item.id)
         }
       })
 
@@ -1018,5 +1130,5 @@ function Prompts ({ overlay, theme, terminal, backdrop, close, submit, setOverla
 function placeholderFor (room, mode) {
   if (mode === 'normal') return 'press i to write, space for the menu'
   if (!room) return 'space f d to message someone, space r n for a new room'
-  return `message ${room.kind === 'dm' ? '@' : '#'}${room.name}, or / for commands`
+  return `message ${conversationLabel(room.kind, room.name)}, or / for commands`
 }

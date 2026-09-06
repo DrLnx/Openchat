@@ -16,6 +16,8 @@ import { fit, truncate, width } from '../model/text.js'
 
 /**
  * @param {object} props
+ * @param {boolean} [props.focused]   the pane has the keyboard
+ * @param {number} [props.selected]   which row the cursor is on, when focused
  * @param {{ id: string, name: string, kind: string, unread: number,
  *           closed?: boolean, owned?: boolean }[]} props.conversations
  * @param {string|null} props.activeId
@@ -23,7 +25,9 @@ import { fit, truncate, width } from '../model/text.js'
  * @returns {{ rows: React.ReactElement[], targets: (string|null)[] }}
  *          one row each, and what a click on that row should open
  */
-export function sidebarRows ({ conversations, activeId, columns, theme, muted = false }) {
+export function sidebarRows ({
+  conversations, activeId, columns, theme, muted = false, focused = false, selected = -1
+}) {
   const dye = (color) => (muted ? theme.subtle : color)
   const icons = theme.icons
   // Every row is padded to the full width of the pane, so the highlight on the
@@ -52,6 +56,9 @@ export function sidebarRows ({ conversations, activeId, columns, theme, muted = 
 
   const item = (conversation) => {
     const active = conversation.id === activeId
+    // Two different things, and they look different: `active` is the
+    // conversation you are in, `cursor` is the row you are about to open.
+    const cursor = focused && rows.length === selected
     const unread = conversation.unread || 0
     const badge = unread > 0 ? (unread > 99 ? '99+' : String(unread)) : ''
     const flag = conversation.closed ? icons.closed : conversation.owned ? icons.owner : ''
@@ -62,9 +69,21 @@ export function sidebarRows ({ conversations, activeId, columns, theme, muted = 
     const label = truncate(`${conversation.kind === 'dm' ? icons.dm : icons.room}${conversation.name}`, Math.max(3, room))
 
     rows.push(
-      <Text key={`c-${conversation.id}`} wrap='truncate-end' backgroundColor={active && !muted ? theme.selection : undefined}>
-        <Text color={active ? dye(theme.accent) : theme.subtle}>{active ? `${icons.selected} ` : '  '}</Text>
-        <Text color={active ? dye(theme.accent) : unread ? dye(theme.fg) : dye(theme.dim)} bold={active && !muted}>
+      <Text
+        key={`c-${conversation.id}`}
+        wrap='truncate-end'
+        backgroundColor={!muted && (cursor || active) ? theme.selection : undefined}
+      >
+        <Text color={cursor ? dye(theme.accent2) : active ? dye(theme.accent) : theme.subtle}>
+          {/* The cursor takes the caret while the list has the keyboard, so the
+              conversation you are *in* steps aside to a quieter mark rather
+              than competing with the one you are about to open. */}
+          {cursor ? `${icons.selected} ` : active ? (focused ? `${icons.edge} ` : `${icons.selected} `) : '  '}
+        </Text>
+        <Text
+          color={cursor ? dye(theme.fg) : active ? dye(theme.accent) : unread ? dye(theme.fg) : dye(theme.dim)}
+          bold={(active || cursor) && !muted}
+        >
           {fit(label, Math.max(3, room))}
         </Text>
         {flag ? <Text color={dye(theme.yellow)}>{`${flag} `}</Text> : ''}

@@ -67,6 +67,8 @@ export const BINDINGS = [
   { keys: 'L', mode: 'normal', desc: 'Next conversation', action: 'nav:next' },
   { keys: 'H', mode: 'normal', desc: 'Previous conversation', action: 'nav:prev' },
   { keys: 'gd', mode: 'normal', desc: 'Go to the newest unread', action: 'nav:unread' },
+  { keys: '<leader>e', mode: 'normal', desc: 'Move around the conversation list', action: 'focus:sidebar' },
+  { keys: '<C-e>', mode: 'both', desc: 'Move around the conversation list', action: 'focus:sidebar' },
 
   // --- reading back -------------------------------------------------------
   // The transcript lives in a pane rather than in the terminal's scrollback, so

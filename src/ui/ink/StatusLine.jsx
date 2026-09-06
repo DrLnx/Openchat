@@ -15,7 +15,8 @@ import { width } from '../model/text.js'
 const MODE_LABEL = { normal: 'NORMAL', insert: 'INSERT', command: 'COMMAND', float: 'MENU' }
 
 export function StatusLine ({
-  theme, mode, room, rooms = [], profile, connection, self, writable, mouse, scrolled, columns = 80
+  theme, mode, room, rooms = [], profile, connection, self, writable, mouse, scrolled, columns = 80,
+  listFocused = false
 }) {
   const icons = theme.icons
   const color = theme.mode[mode] || theme.mode.normal
@@ -33,7 +34,9 @@ export function StatusLine ({
   return (
     <Box width={columns} height={1} flexShrink={0} justifyContent='space-between' overflow='hidden'>
       <Box>
-        <Text backgroundColor={color} color={theme.on} bold>{` ${MODE_LABEL[mode] || 'NORMAL'} `}</Text>
+        <Text backgroundColor={listFocused ? theme.accent2 : color} color={theme.on} bold>
+          {listFocused ? ' LIST ' : ` ${MODE_LABEL[mode] || 'NORMAL'} `}
+        </Text>
 
         <Text backgroundColor={theme.float} color={theme.accent} bold>
           {room ? ` ${room.kind === 'dm' ? icons.dm : icons.room}${room.name} ` : ' no room '}
@@ -71,20 +74,28 @@ export function StatusLine ({
             </Text>
             )
           : ''}
-        {hints
+        {listFocused
           ? (
-            <Text>
-              {mouse ? <Text color={theme.subtle}>{`mouse ${icons.sep} `}</Text> : ''}
-              <Text color={theme.dim}>
-                {mode === 'insert'
-                  ? <Text><Text color={theme.accent}>esc</Text> normal </Text>
-                  : <Text><Text color={theme.accent}>␣</Text> keys </Text>}
-              </Text>
-              <Text color={theme.subtle}>{`${icons.sep} `}</Text>
-              <Text color={theme.dim}><Text color={theme.accent}>?</Text> help</Text>
+            <Text color={theme.dim}>
+              <Text color={theme.accent}>j k</Text> move <Text color={theme.subtle}>{icons.sep}</Text>{' '}
+              <Text color={theme.accent}>⏎</Text> open <Text color={theme.subtle}>{icons.sep}</Text>{' '}
+              <Text color={theme.accent}>esc</Text> back
             </Text>
             )
-          : ''}
+          : hints
+            ? (
+              <Text>
+                {mouse ? <Text color={theme.subtle}>{`mouse ${icons.sep} `}</Text> : ''}
+                <Text color={theme.dim}>
+                  {mode === 'insert'
+                    ? <Text><Text color={theme.accent}>esc</Text> normal </Text>
+                    : <Text><Text color={theme.accent}>␣</Text> keys </Text>}
+                </Text>
+                <Text color={theme.subtle}>{`${icons.sep} `}</Text>
+                <Text color={theme.dim}><Text color={theme.accent}>?</Text> help</Text>
+              </Text>
+              )
+            : ''}
       </Box>
     </Box>
   )

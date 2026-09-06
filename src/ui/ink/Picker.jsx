@@ -43,7 +43,8 @@ const FOOTER = [
  */
 export function Picker ({
   theme, terminal, title, icon, items, placeholder = 'type to filter',
-  onSubmit, onCancel, onSecondary, onEmpty, footer = FOOTER, allowFreeText = false, backdrop
+  onSubmit, onCancel, onSecondary, onEmpty, footer = FOOTER, allowFreeText = false, backdrop,
+  onSearch
 }) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
@@ -53,13 +54,26 @@ export function Picker ({
   // supporting text, matched as a substring. `detail` is usually a public key,
   // matched as a prefix — see the note in ui/model/fuzzy.js about why fuzzy
   // matching a 64-character hex string matches everything.
-  const matches = useMemo(() => rank(items, query, {
-    key: (item) => [
-      item.label,
-      { text: item.hint ?? '', match: 'substring' },
-      { text: item.detail ?? '', match: item.detailMatch || 'prefix' }
-    ]
-  }), [items, query])
+  // Two ways to narrow a list, and which one applies is a property of the list.
+  //
+  // A finder over things already in memory — rooms, commands, keymaps — ranks
+  // them here, fuzzily, so the matched characters can be highlighted. A finder
+  // over your whole history cannot: there may be a hundred thousand messages
+  // and they are not in memory at all. Those come back already ranked from the
+  // index, which is the only thing that has seen all of them.
+  const matches = useMemo(() => {
+    if (onSearch) {
+      return onSearch(query).map((item) => ({ item, positions: [], field: 0 }))
+    }
+
+    return rank(items, query, {
+      key: (item) => [
+        item.label,
+        { text: item.hint ?? '', match: 'substring' },
+        { text: item.detail ?? '', match: item.detailMatch || 'prefix' }
+      ]
+    })
+  }, [items, query, onSearch])
 
   const layout = useMemo(
     () => floatLayout(terminal, { items: Math.max(matches.length, 1), maxRows: 22 }),

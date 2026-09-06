@@ -83,7 +83,7 @@ test('the UI renders a live room and paints messages as they arrive', async (t) 
 
   const withMessage = screen(app)
   assert.match(withMessage, /\d\d:\d\d/, 'messages are timestamped')
-  assert.match(withMessage, /⏺/, 'an arriving message is marked as incoming')
+  assert.match(withMessage, /is this thing on\?/, 'the message itself is painted')
 })
 
 test('typing a message sends it; typing a slash command runs it', async (t) => {
@@ -264,7 +264,7 @@ test('joining opens the room at once and waits to be admitted in the background'
 
   const frame = screen(app)
   assert.match(frame, /#closed-shop/, 'the room is open and named in the title bar')
-  assert.match(frame, /by itself as soon as a member is online/, 'and says it needs nothing from you')
+  assert.match(frame, /by itself once the room's owner is online/, 'and says who it is waiting for')
 })
 
 test('the UI comes up with no rooms and says what to do', async (t) => {
@@ -287,4 +287,78 @@ test('the UI comes up with no rooms and says what to do', async (t) => {
   assert.match(frame, /find someone to message/, 'tells you how to reach someone')
   assert.match(frame, /no rooms yet/, 'and so does the empty conversation list')
   assert.ok(frame.includes(alice.identity.publicKeyHex), 'shows your key, which is how people reach you')
+})
+
+test('leaving a room tells the room, and takes it off this machine', async (t) => {
+  const testnet = await createTestDht()
+  const alice = await startClient(testnet.bootstrap)
+  const bob = await startClient(testnet.bootstrap)
+
+  t.after(async () => {
+    await alice.close()
+    await bob.close()
+    await testnet.destroy()
+  })
+
+  await alice.setNick('alice')
+  const room = await alice.createRoom('design')
+  await bob.joinRoom(room.invite)
+  await alice.sendText('something worth keeping')
+
+  const app = render(React.createElement(App, { client: alice, profile: 'work' }))
+  t.after(() => app.unmount())
+  await waitFor(async () => screen(app).includes('#design'), { message: 'the room to open' })
+
+  await type(app, '/leave')
+  await waitFor(async () => screen(app).includes('left #design'), { message: 'the room to be left' })
+
+  assert.equal(alice.conversations.size, 0, 'it is gone from her machine')
+  assert.equal(
+    alice.config.rooms.some((r) => r.key === room.keyHex),
+    false,
+    'and will not come back on the next run'
+  )
+  assert.match(screen(app), /carries on without you/, 'and says what leaving does not do')
+
+  // Bob is still in it, and sees that she went.
+  assert.ok(bob.conversations.has(room.keyHex), "bob's room is untouched")
+  await waitFor(
+    async () => bob.conversations.get(room.keyHex).room.messages.some((m) => m.type === 'system' && m.event === 'leave'),
+    { message: 'bob to see her leave', timeout: 30000 }
+  )
+
+  // Leaving is not erasure: what she wrote is still his.
+  assert.ok(
+    bob.conversations.get(room.keyHex).room.messages.some((m) => m.body === 'something worth keeping'),
+    'her messages stay in the room she left'
+  )
+})
+
+test('deleting a conversation clears its history and its index here', async (t) => {
+  const testnet = await createTestDht()
+  const alice = await startClient(testnet.bootstrap)
+
+  t.after(async () => {
+    await alice.close()
+    await testnet.destroy()
+  })
+
+  const room = await alice.createRoom('ops')
+  await alice.sendText('a searchable sentence about deployments')
+  await sleep(300)
+
+  assert.ok(alice.index.count(room.keyHex) > 0, 'it was indexed')
+  assert.ok(alice.search('deployments').length > 0, 'and findable')
+
+  const app = render(React.createElement(App, { client: alice, profile: 'work' }))
+  t.after(() => app.unmount())
+  await waitFor(async () => screen(app).includes('#ops'), { message: 'the room to open' })
+
+  await type(app, '/delete')
+  await waitFor(async () => screen(app).includes('deleted #ops'), { message: 'the room to be deleted' })
+
+  assert.equal(alice.conversations.size, 0)
+  assert.equal(alice.index.count(room.keyHex), 0, 'the index forgot it too')
+  assert.equal(alice.search('deployments').length, 0, 'so it is no longer findable')
+  assert.match(screen(app), /everyone else still has their copy/, 'and is honest about what it cannot do')
 })

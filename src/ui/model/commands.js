@@ -27,13 +27,15 @@ export const COMMANDS = [
   { name: 'theme', args: '<name>', help: 'change the palette' },
   { name: 'keys', args: '', help: 'show the keymap' },
   { name: 'find', args: '', help: 'fuzzy-find a room or conversation' },
+  { name: 'leave', args: '', help: 'leave this conversation — the room carries on without you' },
+  { name: 'delete', args: '', help: 'remove this conversation from this machine, history and all' },
   { name: 'close', args: '', help: 'close this room to new members (owner only)' },
   { name: 'reopen', args: '', help: 'let people join again (owner only)' },
   { name: 'transfer', args: '<key|name>', help: 'hand the room to someone else (owner only)' },
   { name: 'remove', args: '<key|name>', help: 'remove a member and keep them out (owner only)' },
   { name: 'allow', args: '<key|name>', help: 'let a removed member back in (owner only)' },
   { name: 'help', args: '', help: 'show this list' },
-  { name: 'quit', args: '', help: 'leave and exit' }
+  { name: 'quit', args: '', help: 'close openchat' }
 ]
 
 const BY_NAME = new Map(COMMANDS.map((c) => [c.name, c]))

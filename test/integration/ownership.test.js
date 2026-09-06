@@ -198,3 +198,68 @@ test('a removed member cannot simply rejoin with the invite they still hold', as
     timeout: 30000
   })
 })
+
+test('only the owner adds members — a member cannot let anyone else in', async (t) => {
+  // Everyone with the invite still walks straight in: there is no approval
+  // step and nothing to accept. What is restricted is who *writes* them into
+  // the room. A member who was let in cannot then let other people in, so the
+  // membership of a room is the owner's and stays the owner's.
+  const testnet = await createTestDht()
+  const owner = await createPeer({ bootstrap: testnet.bootstrap, nick: 'owner' })
+  const member = await createPeer({ bootstrap: testnet.bootstrap, nick: 'member' })
+  const stranger = await createPeer({ bootstrap: testnet.bootstrap, nick: 'stranger' })
+
+  t.after(async () => {
+    await owner.destroy()
+    await member.destroy()
+    await stranger.destroy()
+    await testnet.destroy()
+  })
+
+  const room = await createRoom({ store: owner.store, identity: owner.identity, name: 'design' })
+  await room.attachSwarm(owner.swarm)
+  t.after(() => room.close().catch(() => {}))
+
+  // The member joins normally, admitted by the owner.
+  const memberRoom = await openRoom({
+    store: member.store,
+    identity: member.identity,
+    roomKey: room.key,
+    encryptionKey: room.encryptionKey,
+    name: 'design'
+  })
+  await memberRoom.attachSwarm(member.swarm)
+  await memberRoom.requestJoin()
+  await memberRoom.waitForWritable()
+  t.after(() => memberRoom.close().catch(() => {}))
+
+  assert.equal(memberRoom.writable, true, 'the owner let the member in')
+  assert.equal(memberRoom.isOwner, false, 'who is not the owner')
+
+  // Now the owner goes away, leaving only the member online.
+  await room.close().catch(() => {})
+
+  const strangerRoom = await openRoom({
+    store: stranger.store,
+    identity: stranger.identity,
+    roomKey: room.key,
+    encryptionKey: room.encryptionKey,
+    name: 'design'
+  })
+  await strangerRoom.attachSwarm(stranger.swarm)
+  await strangerRoom.requestJoin()
+  t.after(() => strangerRoom.close().catch(() => {}))
+
+  await assert.rejects(
+    () => strangerRoom.waitForWritable(4000),
+    /timed out waiting to be admitted/,
+    'a member online and willing is not enough — only the owner admits'
+  )
+
+  assert.equal(strangerRoom.writable, false)
+  assert.equal(
+    memberRoom.members.includes(stranger.identity.publicKeyHex),
+    false,
+    'and the room never recorded them'
+  )
+})

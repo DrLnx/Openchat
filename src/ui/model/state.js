@@ -54,15 +54,21 @@ export function reduce (state, action) {
     }
 
     case 'rooms': {
-      // A refresh re-reads the conversation list from the client, which has no
-      // idea what you have and have not read. Carry the counts across, or
-      // switching rooms would quietly mark everything else as read.
-      const unread = new Map(state.rooms.map((r) => [r.key, r.unread || 0]))
+      // A refresh re-reads the conversation list. What it must not do is reset
+      // the counts: switching rooms would quietly mark everything else as read.
+      //
+      // A conversation we already had a count for keeps it. One we have never
+      // seen this session takes whatever the caller supplied — which is how a
+      // count from the index survives a restart, rather than every room looking
+      // read the moment you open the app.
+      const seen = new Map(state.rooms.map((r) => [r.key, r.unread || 0]))
       return {
         ...state,
         rooms: action.rooms.map((room) => ({
           ...room,
-          unread: room.key === state.room?.key ? 0 : (unread.get(room.key) || 0)
+          unread: room.key === state.room?.key
+            ? 0
+            : (seen.has(room.key) ? seen.get(room.key) : (room.unread || 0))
         }))
       }
     }

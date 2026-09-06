@@ -12,14 +12,42 @@ import { describeChord, groupFor } from '../model/keymap.js'
 
 const COLUMN = 28
 
-/** The popup's width, which is what decides how many entries fit on a row. */
-function geometry (terminal) {
-  // Full width, flush to both edges. It sits directly on top of the prompt,
-  // which is also full width, so anything narrower reads as a stray box rather
-  // than as part of the same piece of furniture.
-  const width = Math.max(40, terminal?.columns ?? 80)
-  const inner = width - 4
-  return { width, inner, columns: Math.max(1, Math.floor(inner / COLUMN)) }
+/** Rows the popup will grow to before it takes another column instead. */
+const PREFERRED_ROWS = 6
+
+/** Distinct next-keys — several bindings can share one, and it is listed once. */
+function keyCount (candidates) {
+  return new Set(candidates.map((c) => c.next)).size
+}
+
+/**
+ * Where the popup sits and how big it is.
+ *
+ * Bottom right, sized to its contents. It used to span the full width directly
+ * above the prompt, which put it straight through the middle of the
+ * conversation — the part of the screen you are actually reading. In the corner
+ * it covers the least valuable rows on screen and is still exactly where your
+ * eye already is, next to the prompt.
+ */
+function geometry (terminal, candidates = []) {
+  const screen = Math.max(20, terminal?.columns ?? 80)
+  const count = Math.max(1, keyCount(candidates))
+
+  // Grow downwards first and sideways only when the list would get too tall,
+  // so the common case is one narrow column tucked into the corner.
+  const fits = Math.max(1, Math.floor((screen - 6) / COLUMN))
+  const columns = Math.max(1, Math.min(fits, Math.ceil(count / PREFERRED_ROWS)))
+
+  const width = Math.min(screen, columns * COLUMN + 4)
+
+  return {
+    width,
+    inner: width - 4,
+    columns,
+    rows: Math.ceil(count / columns),
+    /** Blank columns to its left, which is what puts it against the right edge. */
+    left: Math.max(0, screen - width)
+  }
 }
 
 /**
@@ -28,14 +56,13 @@ function geometry (terminal) {
  */
 export function whichKeyHeight (candidates, terminal) {
   if (!candidates || candidates.length === 0) return 0
-  const distinct = new Set(candidates.map((c) => c.next)).size
-  return Math.ceil(distinct / geometry(terminal).columns) + 2
+  return geometry(terminal, candidates).rows + 2
 }
 
 export function WhichKey ({ theme, terminal, pending, candidates }) {
   if (candidates.length === 0) return null
 
-  const { width, inner, columns } = geometry(terminal)
+  const { width, inner, columns, left } = geometry(terminal, candidates)
 
   // One entry per next key. Several bindings can share a prefix — `<leader>ff`
   // and `<leader>fd` both sit under `f` — and what you want to see there is the
@@ -57,7 +84,7 @@ export function WhichKey ({ theme, terminal, pending, candidates }) {
   for (let i = 0; i < entries.length; i += columns) rows.push(entries.slice(i, i + columns))
 
   return (
-    <Box flexDirection='column' width={width} flexShrink={0}>
+    <Box flexDirection='column' width={width} marginLeft={left} flexShrink={0}>
       <Text color={theme.borderFocus}>
         <Text>{'\u256d\u2500 '}</Text>
         <Text color={theme.accent} bold>{chord}</Text>

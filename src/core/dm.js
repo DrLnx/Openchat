@@ -31,7 +31,34 @@ import { ENCRYPTION_KEY_BYTES } from '../protocol/constants.js'
 
 const TOPIC_CONTEXT = 'openchat:dm:topic:v1'
 const KEY_CONTEXT = 'openchat:dm:enc:v1'
+const INBOX_CONTEXT = 'openchat:dm:inbox:v1'
 export const DM_PROTOCOL = 'openchat/dm/1'
+export const DM_HELLO_PROTOCOL = 'openchat/dm-hello/1'
+
+/**
+ * The topic you can be reached on by anyone who knows your public key.
+ *
+ * A conversation's own topic is derived from *both* identities, which is what
+ * makes it unguessable — and also what makes an unannounced first message
+ * impossible: the person you are writing to cannot derive that topic without
+ * already knowing your key, so they are not listening on it, so you are talking
+ * to an empty room.
+ *
+ * This is the one rendezvous that needs only one key: yours. You announce it,
+ * anyone holding your public key can find you there and say who they are, and
+ * from that point on both sides can derive the real topic and move to it.
+ * Nothing sensitive rides on it — someone who can compute it already had your
+ * public key, which is the thing you hand out.
+ */
+export function inboxTopic (publicKey) {
+  const out = b4a.alloc(32)
+  const input = b4a.concat([
+    b4a.from(`${INBOX_CONTEXT}:`, 'utf8'),
+    b4a.from(publicKey)
+  ])
+  sodium.crypto_generichash(out, input)
+  return out
+}
 
 /** How often an unpaired side repeats its outbox key on an open connection. */
 const ANNOUNCE_RETRY_MS = 3000
@@ -185,11 +212,46 @@ export class DirectChannel extends EventEmitter {
     this._swarm = swarm
     swarm.on('connection', (connection) => this._attach(connection))
     for (const connection of swarm.connections) this._attach(connection)
+
     swarm.join(this.topic)
+
+    // Also knock on their door. They cannot be listening on our shared topic
+    // until they know who we are, so the first contact happens on the one
+    // topic they *are* listening on: their own.
+    swarm.join(inboxTopic(b4a.from(this.peerKey, 'hex')))
     return this
   }
 
   _attach (connection) {
+    // The whole handshake happens here, on their inbox channel, and it carries
+    // the outbox key rather than a bare knock.
+    //
+    // It has to, because the conversation's own channel cannot be relied on for
+    // it. We open ours the moment we connect; they cannot open theirs until
+    // this message has told them the conversation exists. A protomux channel
+    // whose remote opens late never pairs — the OPEN arrived when there was
+    // nothing to deliver it to and is not sent again — so the key would sit
+    // there undelivered and the conversation would carry nothing.
+    //
+    // The inbox channel has no such race: both sides attach it the moment the
+    // connection exists, one from this conversation and one from the client
+    // listening on its own inbox topic. See Client._listenForDms.
+    let hello = null
+    const knock = () => {
+      if (this.outbox) hello?.send(this.outbox.key)
+    }
+    hello = attachChannel({
+      connection,
+      protocol: DM_HELLO_PROTOCOL,
+      id: inboxTopic(b4a.from(this.peerKey, 'hex')),
+      onMessage: (payload) => {
+        this._handleAnnounce(payload).catch((err) => this.emit('error', err))
+      },
+      onOpen: knock
+    })
+    knock()
+    this._channels.add(hello)
+
     let channel = null
 
     // Swap outbox keys once the channel is open at both ends, and keep offering

@@ -9,7 +9,7 @@ import path from 'node:path'
 import os from 'node:os'
 
 import { helpText } from '../ui/model/commands.js'
-import { shortKey } from '../ui/model/format.js'
+import { shortKey, conversationLabel as label } from '../ui/model/format.js'
 import { listProfiles, currentProfile } from '../core/store.js'
 
 /**
@@ -56,7 +56,7 @@ export async function runCommand (command, ctx) {
       const room = client.activeRoom
       if (!room) return notice('DMs need no invite — /invite only applies to rooms', 'error')
       if (room.isClosed) notice('this room is closed, so the invite will not admit anyone', 'warn')
-      notice(`invite for #${room.name}:`)
+      notice(`invite for ${label('room', room.name)}:`)
       notice(room.invite)
       notice('anyone with this string can read and post — share it out of band.', 'warn')
       return
@@ -75,16 +75,16 @@ export async function runCommand (command, ctx) {
       ctx.refresh?.()
 
       if (room.writable) {
-        notice(`joined #${room.name}`)
+        notice(`joined ${label('room', room.name)}`)
         return
       }
 
-      notice(`opened #${room.name} — waiting to be admitted.`)
-      notice('this happens by itself as soon as a member is online. carry on in the meantime.')
+      notice(`opened ${label('room', room.name)} — waiting to be admitted.`)
+      notice("this happens by itself once the room's owner is online. carry on in the meantime.")
 
       room.waitForWritable(0).then(() => {
         ctx.refresh?.()
-        notice(`admitted to #${room.name} — anything you send now reaches everyone in it.`)
+        notice(`admitted to ${label('room', room.name)} — anything you send now reaches everyone in it.`)
       }).catch((err) => notice(err.message, 'error'))
 
       return
@@ -93,7 +93,7 @@ export async function runCommand (command, ctx) {
     case 'new': {
       const room = await client.createRoom(command.arg)
       ctx.refresh?.()
-      notice(`opened #${room.name} — you own it. /invite to add people.`)
+      notice(`opened ${label('room', room.name)} — you own it. /invite to add people.`)
       return
     }
 
@@ -141,9 +141,9 @@ export async function runCommand (command, ctx) {
       notice(list
         .map((c) => {
           const marker = c.id === client.activeId ? '▸' : ' '
-          const label = c.kind === 'room' ? `#${c.name}` : `@${c.name}`
+          const text = label(c.kind, c.name)
           const tags = [c.closed && 'closed', c.owned && 'yours'].filter(Boolean).join(', ')
-          return `${marker} ${label.padEnd(22)}${tags ? `(${tags})` : ''}`
+          return `${marker} ${text.padEnd(22)}${tags ? `(${tags})` : ''}`
         })
         .join('\n'))
       return
@@ -178,6 +178,46 @@ export async function runCommand (command, ctx) {
       const [key, ...rest] = command.args.length > 1 ? command.args : command.arg.split(/\s+/)
       const contact = await client.addContact(key, rest.join(' ').trim() || null)
       notice(`saved ${contact.name || shortKey(contact.key, 16)} — /dm ${contact.name || shortKey(contact.key)}`)
+      return
+    }
+
+    case 'leave': {
+      const target = client.active
+      if (!target) return notice('nothing open to leave', 'error')
+
+      const owned = target.kind === 'room' && target.room.isOwner
+      const { kind, name, announced } = await client.removeConversation(client.activeId, {
+        announce: true
+      })
+      ctx.refresh?.()
+
+      notice(`left ${label(kind, name)}`)
+      if (announced) notice('the room was told you are going.')
+      if (kind === 'room') {
+        notice('it carries on without you, and keeps what you wrote — nothing in a log can be unsaid.')
+      }
+      if (owned) {
+        notice('you owned it. nobody can admit new members now — /transfer first if that matters.', 'warn')
+      }
+      return
+    }
+
+    case 'delete': {
+      const target = client.active
+      if (!target) return notice('nothing open to delete', 'error')
+
+      const owned = target.kind === 'room' && target.room.isOwner
+      const { kind, name } = await client.removeConversation(client.activeId)
+      ctx.refresh?.()
+
+      notice(`deleted ${label(kind, name)} from this machine`)
+      notice('its messages, keys and search history are gone from here.')
+
+      if (kind === 'room') {
+        // Worth saying plainly rather than letting someone find out later.
+        notice('everyone else still has their copy — there is no server to delete it from.', 'warn')
+        if (owned) notice('you owned it. /close it first if you want it shut to newcomers.', 'warn')
+      }
       return
     }
 

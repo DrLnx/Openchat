@@ -24,7 +24,7 @@ import {
 } from './blocks.js'
 import { attachPairing } from './pairing.js'
 import { seal, open as openEnvelope } from '../protocol/envelope.js'
-import { decodeMessage, encodeMessage, text, file, nick, presence } from '../protocol/messages.js'
+import { decodeMessage, encodeMessage, text, file, nick, presence, system } from '../protocol/messages.js'
 import { linearize, nextClock } from '../protocol/order.js'
 import { topicFor, encodeInvite } from '../protocol/invite.js'
 import { ENCRYPTION_KEY_BYTES } from '../protocol/constants.js'
@@ -60,6 +60,7 @@ export class Room extends EventEmitter {
     this._writers = new Map() // author hex -> writer core key hex
     this._joinBlock = null
     this._pairings = new Set()
+    this._retries = new Set()
     this._swarm = null
     this._owner = null
     this._closedByOwner = false
@@ -415,7 +416,7 @@ export class Room extends EventEmitter {
       connection,
       roomKey: this.base.key,
       onAnnounce: (block) => {
-        this._admit(block).catch((err) => this.emit('error', err))
+        this._admit(block).catch((err) => this._fail(err))
       },
       onReady: announce
     })
@@ -427,9 +428,11 @@ export class Room extends EventEmitter {
     // stays up.
     const retry = setInterval(announce, ANNOUNCE_RETRY_MS)
     retry.unref?.()
+    this._retries.add(retry)
 
     connection.once('close', () => {
       clearInterval(retry)
+      this._retries.delete(retry)
       this._pairings.delete(pairing)
     })
 
@@ -458,8 +461,20 @@ export class Room extends EventEmitter {
   }
 
   /**
-   * Act on someone else's join announcement. Only a writer can admit anyone;
-   * everyone else just holds onto it in case they become one.
+   * Act on someone else's join announcement.
+   *
+   * Adding a member is the owner's job and nobody else's. The invite is still
+   * the credential — whoever holds it walks straight in, with no approval step
+   * and nothing to wait for beyond the owner being reachable — but it is the
+   * owner's client that writes them into the room. A member who was let in
+   * cannot then let other people in.
+   *
+   * Like closing, this is enforced by honest clients rather than by the log.
+   * The alternative is a rule in apply(), and apply() is reapplied whenever
+   * Autobase learns about concurrent writes: a transfer of ownership that
+   * happened alongside a join could be reordered ahead of it and silently
+   * evict a member who joined perfectly legitimately. Losing a real member to
+   * a race is a worse failure than a patched client relaying a join.
    */
   async _admit (blockBuffer) {
     let block
@@ -470,9 +485,12 @@ export class Room extends EventEmitter {
     }
     if (block.type !== 'join') return
 
+    if (this.closed) return // an announcement that arrived on the way out
+
     const authorHex = b4a.toString(block.author, 'hex')
     if (this._writers.has(authorHex)) return // already a member
     if (!this.base.writable) return // we cannot admit anyone ourselves
+    if (!this.isOwner) return // and only the owner adds anyone
 
     // A closed room admits nobody new. This is enforced by members' clients
     // rather than by the log itself: a member who wanted to could still relay
@@ -489,6 +507,18 @@ export class Room extends EventEmitter {
 
     await this.base.append(blockBuffer)
     await this._refresh()
+  }
+
+  /**
+   * Report a background failure without turning it into a crash.
+   *
+   * `emit('error')` on an EventEmitter nobody is listening to throws, so a room
+   * used directly rather than through the client would die of a late network
+   * event it had every right to ignore.
+   */
+  _fail (err) {
+    if (this.closed) return
+    if (this.listenerCount('error') > 0) this.emit('error', err)
   }
 
   /**
@@ -555,6 +585,18 @@ export class Room extends EventEmitter {
     return this._append(presence(this.identity.publicKeyHex, this._nextClock(), status))
   }
 
+  /**
+   * Say that you are leaving, so the room can see you go.
+   *
+   * This is a message, not a removal: it does not revoke your writer core and
+   * it does not erase what you said. Nothing in a log can be taken back, and a
+   * room that quietly loses people is worse than one that says who left.
+   */
+  async announceLeaving () {
+    if (!this.base.writable) return null
+    return this._append(system(this.identity.publicKeyHex, this._nextClock(), 'leave'))
+  }
+
   async _append (message) {
     // Removal is checked first: it also takes away write access, so the generic
     // "not a writer yet" message would be technically true and actively
@@ -595,6 +637,13 @@ export class Room extends EventEmitter {
     this.closed = true
     this.emit('closing')
     this.base.off('update', this._onUpdate)
+
+    // Stop knocking before the log goes away. An announcement that lands after
+    // this point is answered by an append to a closing Autobase, which rejects
+    // — and did so where nothing was listening for it.
+    for (const retry of this._retries) clearInterval(retry)
+    this._retries.clear()
+
     for (const pairing of this._pairings) pairing.close()
     this._pairings.clear()
     await this.base.close()
