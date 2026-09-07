@@ -41,7 +41,7 @@ export function Float ({ theme, layout, title, icon, count, footer = [], focused
   // rule, then make the rule whatever is left over.
   const head = `${icon ? `${icon} ` : ''}${title}`
   const tail = count ? visibleWidth(count) + 2 : 0
-  const fill = Math.max(0, layout.width - 5 - visibleWidth(head) - tail)
+  const fill = Math.max(0, layout.width - 6 - visibleWidth(head) - tail)
 
   const frame = (
     <Box
@@ -52,7 +52,7 @@ export function Float ({ theme, layout, title, icon, count, footer = [], focused
       flexShrink={0}
     >
       <Text color={edge}>
-        <Text>{'\u256d\u2500'}</Text>
+        <Text>{'\u256d\u2500 '}</Text>
         <Text color={theme.accent2} bold>{head}</Text>
         <Text>{` ${rule(fill)}`}</Text>
         {count ? <Text>{' '}<Text color={theme.dim}>{count}</Text>{' '}</Text> : null}

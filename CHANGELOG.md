@@ -7,6 +7,21 @@ All notable changes to this project are documented here. This project follows
 
 ### Added
 
+- **Keys live in a window now, not in the conversation.** `/whoami`, `/backup`
+  and `/invite` used to write their answer into the transcript, which was the
+  worst place in the app for it: a 64-character key wrapped across the message
+  column, indented under a speaker's name, in a pane the next message scrolls —
+  and it stayed there, in whatever that transcript was later shown to. They now
+  open a floating window that lays the value out whole in a box wide enough to
+  hold it, says on the same row what it is worth to somebody else (`safe to
+  share` against a public key, `never share` against a recovery phrase), and
+  closes without leaving anything behind. `c` copies the value to your system
+  clipboard over OSC 52, so it works through ssh and tmux with no helper
+  binary; `⇥` moves between the values in a window; `r` shows or hides a
+  secret, which stays masked until you ask for it. `space k` opens your own
+  keys from anywhere. `/members`, `/contacts` and `/rooms` — the other commands
+  whose answer was a column of public keys — open the finder instead of a
+  paragraph of output.
 - **A full-screen interface.** openchat now takes the whole terminal — the
   alternate buffer, the one `vim` uses — and paints a frame the size of your
   window: a title bar naming the conversation, a **conversation list** down the
@@ -35,6 +50,9 @@ All notable changes to this project are documented here. This project follows
   it is for a floating window — click a row to open it, click the conversation
   to come back — so pointing at things costs your terminal's text selection
   only while you are actually pointing.
+- **A date on the transcript.** A rule with the day on it goes in wherever the
+  day changes, because a clock alone cannot tell you whether `09:12` was this
+  morning or last Thursday.
 - **A local index over your history** (`index.db` in each account, SQLite via
   Node's built-in `node:sqlite` — no new dependency). Hypercore remains the
   source of truth and the only thing peers ever see; this is a derived view that
@@ -89,6 +107,21 @@ All notable changes to this project are documented here. This project follows
 
 ### Changed
 
+- **The chat pane was redrawn.** The figlet `openchat` across the welcome
+  screen is gone — it was a logo drawn by someone who only had one font, it was
+  the widest thing on a screen whose whole point is the column next to it, and
+  it fell apart every time the pane got narrow. In its place: a wordmark, a
+  rule, and the chords worth knowing on your first day, grouped by what you
+  actually want. The welcome screen no longer prints your public key in full
+  either — it shows enough to recognise and says which key opens the window
+  that has the rest.
+- **The marker column earns its cell.** Somebody else speaking gets a dot in
+  their own colour, you get a caret, and a line that mentions you gets a solid
+  bar down the whole left edge of the block rather than one mark on its first
+  row — what you want to find when you come back to a room is the block, and a
+  block is only visible if it is marked all the way down. Notices, joins and
+  renames start where a message body starts, so the pane has one text column
+  instead of two.
 - The command menu completes fuzzily: `/dl` finds `/download`. It matches
   command names only — matching help text too would turn `/nope` into whichever
   command's description happened to contain those letters, instead of the error

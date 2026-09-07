@@ -195,7 +195,7 @@ Then, inside:
 
 ```
 /new design-team         open a room you own
-/invite                  print its invite string — share this out of band
+/invite                  its invite string, in a window — share this out of band
 /join openchat1:AUEp…    join a room someone invited you to
 /dm 03d35f4c5d0f36a0…    message someone directly, using only their key
 /help                    everything else
@@ -585,9 +585,9 @@ That is the entire command line. Everything else is a slash command inside the a
 /dm <key|name>      message someone directly
 /new <name>         open a new room you own
 /join <invite>      join a room from an invite
-/invite             print an invite for this room
+/invite             this room's invite, in a window
 /switch <name>      jump to a conversation
-/rooms              list everything you have open
+/rooms              find something you have open
 /members            list the members of this room
 /file <path>        send a file
 /download <id>      fetch an attachment you skipped
@@ -599,7 +599,7 @@ That is the entire command line. Everything else is a slash command inside the a
 /contacts           list the people you have saved
 /add <key> [name]   save someone as a contact
 /nick <name>        set your display name
-/whoami             show your public key
+/whoami             your keys, in a window
 ```
 
 </td>
@@ -621,7 +621,7 @@ That is the entire command line. Everything else is a slash command inside the a
 ```
 /accounts           switch, or make another one
 /profiles           list the accounts here
-/backup             show your recovery phrase
+/backup             your recovery phrase, in a window
 ```
 
 **Owner only**
@@ -811,7 +811,13 @@ npm install
 npm run build        # bundle to dist/
 npm run dev          # rebuild on change
 npm run check        # lint + the full test suite
+npm run shot         # screenshots of the real UI, into shots/
 ```
+
+`npm run shot` drives two real clients on a local DHT, renders the real Ink app
+into a harness, and paints the ANSI frames it produces in a headless browser —
+so a screenshot that looks wrong is the interface looking wrong, not a mockup
+drifting from it. Pass a filter to take only some of them: `npm run shot -- keys`.
 
 ### Trying it without a second machine
 

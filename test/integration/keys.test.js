@@ -198,9 +198,11 @@ test('the command palette runs a command that needs no argument', async (t) => {
   await press(app, ['whoami'])
   await press(app, ['\r'])
 
-  await waitFor(async () => screen(app).includes('open a conversation with you'), {
-    message: '/whoami to run'
-  })
+  // /whoami is one of the commands that opens a window rather than writing
+  // into the conversation, and the palette has to run it the same way typing
+  // it does.
+  await waitFor(async () => screen(app).includes('Your keys'), { message: '/whoami to run' })
+  assert.match(screen(app), /anyone who has it can reach you/, 'and says what the key is worth')
 })
 
 test('a command that takes an argument is left in the prompt to finish', async (t) => {
