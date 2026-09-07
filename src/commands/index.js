@@ -4,6 +4,13 @@
 // client, so it lives here. Everything reports back through `notice` rather
 // than printing, so the same code path works under Ink and under a plain
 // stdout runner.
+//
+// A handful of commands never reach this file when the Ink app is the front
+// end. Anything that would answer with a key — `/whoami`, `/invite`,
+// `/backup` — is intercepted there and opens a window instead, because a key
+// written into the transcript is a key that wraps, scrolls away, and cannot be
+// copied back out. See UI_COMMANDS in ui/ink/App.jsx. What is left here is the
+// same answer as prose, for a runner that has no windows to open.
 
 import path from 'node:path'
 import os from 'node:os'

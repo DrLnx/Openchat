@@ -29,7 +29,7 @@ import { WhichKey, whichKeyHeight } from './WhichKey.jsx'
 import { Picker, Prompt } from './Picker.jsx'
 import { SettingsPanel } from './SettingsPanel.jsx'
 import { Accounts } from './Accounts.jsx'
-import { HelpFloat, IdentityFloat } from './Panels.jsx'
+import { HelpFloat, IdentityFloat, InviteFloat } from './Panels.jsx'
 import { createTheme } from './theme.js'
 import { MouseContext, useMouse, useMouseCapture } from './mouse.js'
 import { screenLayout, hitSidebar } from '../model/layout.js'
@@ -46,11 +46,27 @@ import { listAccounts } from '../../core/accounts.js'
 /** How far ctrl-u, ctrl-d and the wheel move the transcript, in rows. */
 const SCROLL_STEP = 3
 
-/** Slash commands that open a floating window instead of running an action. */
+// Slash commands that open a window instead of writing into the conversation.
+//
+// Everything key-shaped is here. A public key, an invite and a recovery phrase
+// are things you copy, not things you read, and the transcript is the worst
+// place in the app to put one: it wraps them, it indents them under a speaker,
+// it scrolls them away, and it keeps them on screen long after you have
+// finished with them. See KeyFloat.jsx.
+//
+// The lists went the same way for a smaller reason — a room's member list is a
+// column of public keys, and a finder is a better thing to do with a list than
+// a paragraph of output is.
 const UI_COMMANDS = {
   settings: 'float:settings',
   accounts: 'float:accounts',
   keys: 'float:help',
+  whoami: 'float:identity',
+  backup: 'float:backup',
+  invite: 'float:invite',
+  members: 'picker:members',
+  contacts: 'picker:people',
+  rooms: 'picker:conversations',
   find: 'picker:conversations'
 }
 
@@ -287,13 +303,21 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
     }))
   }, [client, state.members, theme])
 
+  // The member list is the one place a room's public keys are all on screen at
+  // once, so it says which one is yours and which one owns the room — the two
+  // facts you cannot work out from a hex string.
+  const owner = client.activeRoom?.owner ?? null
   const members = useMemo(() => Object.entries(state.members).map(([key, member]) => ({
     id: key,
     label: displayName(member, key),
-    hint: `${shortKey(key, 16)}…${key === client.identity.publicKeyHex ? ' · you' : ''}`,
+    hint: [
+      `${shortKey(key, 16)}…`,
+      key === client.identity.publicKeyHex ? '(you)' : null,
+      key === owner ? 'owner' : null
+    ].filter(Boolean).join(' · '),
     detail: key,
     data: { key }
-  })), [state.members, client])
+  })), [state.members, client, owner])
 
   // Searching goes to the index, not to what happens to be in memory: the
   // transcript in front of you is a few hundred lines, and the thing you are
@@ -382,6 +406,13 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
 
       case 'float':
         if (name === 'accounts') loadAccounts()
+        // The one window that needs something to exist before it can open.
+        if (name === 'invite' && !client.activeRoom) {
+          return notice('DMs need no invite — /invite only applies to rooms', 'error')
+        }
+        // `/backup` is the identity window with the phrase already showing:
+        // asking for it *is* asking to see it.
+        if (name === 'backup') return setOverlay({ kind: 'float', name: 'identity', revealed: true })
         setOverlay({ kind: 'float', name })
         return
 
@@ -867,6 +898,11 @@ function Overlay ({
 }) {
   const shared = { theme, terminal, backdrop, onCancel: close }
 
+  // Copying happens inside a window, but the confirmation belongs outside it:
+  // the window is about to be closed, and "did that work" is a question you ask
+  // after it has gone.
+  const onCopy = (what) => notice(`copied ${what} to the clipboard`)
+
   if (overlay.kind === 'float') {
     if (overlay.name === 'settings') {
       return (
@@ -886,11 +922,25 @@ function Overlay ({
         <IdentityFloat
           {...shared}
           profile={profile}
+          revealed={Boolean(overlay.revealed)}
+          onCopy={onCopy}
           identity={{
             nick: client.identity.nick,
             publicKey: client.identity.publicKeyHex,
             mnemonic: client.identity.mnemonic
           }}
+        />
+      )
+    }
+
+    if (overlay.name === 'invite') {
+      const room = client.activeRoom
+      if (!room) return null
+      return (
+        <InviteFloat
+          {...shared}
+          onCopy={onCopy}
+          room={{ name: room.name, invite: room.invite, closed: room.isClosed }}
         />
       )
     }

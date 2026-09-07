@@ -1,14 +1,19 @@
 // The floating windows that show you something rather than ask you something:
-// the keymap, and your own identity.
+// the keymap, your own identity, and a room's invite.
 //
-// Both are the same scrollable frame with different lines in it, so there is
-// one place where "a float you read" behaves consistently — j/k and the wheel
-// scroll, escape closes, and nothing you press can change anything.
+// The keymap is a scrollable frame of lines, so there is one place where "a
+// float you read" behaves consistently — j/k and the wheel scroll, escape
+// closes, and nothing you press can change anything.
+//
+// Anything key-shaped is a different window with different rules, because a key
+// is not something you read, it is something you take away with you. That one
+// lives in KeyFloat.jsx.
 
 import React, { useState, useMemo, useCallback, useRef } from 'react'
 import { Text, useInput } from 'ink'
 
 import { Float, FloatRow, FloatRule, FloatFill } from './Float.jsx'
+import { KeyFloat } from './KeyFloat.jsx'
 import { floatLayout } from '../model/layout.js'
 import { useMouse, useMouseCapture } from './mouse.js'
 import { BINDINGS, describeChord } from '../model/keymap.js'
@@ -140,53 +145,88 @@ export function HelpFloat ({ theme, terminal, onCancel, backdrop }) {
 }
 
 /**
- * Who you are: the key people reach you on, and — only when you ask for it —
- * the phrase that is the only way back to this identity.
+ * Who you are: the key people reach you on, the account it belongs to, and —
+ * only when you ask for it — the phrase that is the only way back to it.
  */
-export function IdentityFloat ({ theme, terminal, identity, profile, onCancel, backdrop }) {
-  const [revealed, setRevealed] = useState(false)
-
-  const lines = useMemo(() => {
-    const out = [
-      { text: 'DISPLAY NAME', color: theme.accent2, bold: true },
-      { text: identity.nick, color: theme.fg, indent: 1 },
-      { text: '' },
-      { text: 'PUBLIC KEY', color: theme.accent2, bold: true },
-      { text: identity.publicKey, color: theme.accent, indent: 1 },
-      { text: 'share this and anyone can start a conversation with you.', indent: 1 },
-      { text: '' },
-      { text: 'ACCOUNT', color: theme.accent2, bold: true },
-      { text: `${profile} — openchat --profile ${profile}`, indent: 1 },
-      { text: '' },
-      { text: 'RECOVERY PHRASE', color: theme.accent2, bold: true }
-    ]
-
-    if (revealed) {
-      out.push({ text: identity.mnemonic, color: theme.yellow, indent: 1 })
-      out.push({ text: 'anyone who has these words can post as you.', color: theme.red, indent: 1 })
-    } else {
-      out.push({ text: 'hidden — press r to show it.', indent: 1 })
-      out.push({ text: 'check nobody is behind you and nothing is recording first.', indent: 1 })
+export function IdentityFloat ({ theme, terminal, identity, profile, revealed, onCancel, onCopy, backdrop }) {
+  const fields = useMemo(() => [
+    {
+      label: 'Display name',
+      value: `${identity.nick || 'anonymous'}   — what a room shows instead of your key`,
+      plain: true
+    },
+    {
+      label: 'Public key',
+      value: identity.publicKey,
+      copyAs: 'your public key',
+      tag: 'safe to share',
+      tone: 'safe',
+      note: 'this is your whole account — anyone who has it can reach you.'
+    },
+    {
+      label: 'Account',
+      value: `${profile || 'default'}   — openchat --profile ${profile || 'default'}`,
+      plain: true
+    },
+    {
+      label: 'Recovery phrase',
+      value: identity.mnemonic || '',
+      copyAs: 'your recovery phrase',
+      secret: true,
+      tag: 'never share',
+      tone: 'danger',
+      note: 'anyone who has these words can post as you. write them down offline.'
     }
-
-    return out
-  }, [theme, identity, profile, revealed])
+  ], [identity, profile])
 
   return (
-    <InfoFloat
+    <KeyFloat
       theme={theme}
       terminal={terminal}
-      title='Your identity'
+      title='Your keys'
       icon={theme.icons.key}
       subtitle='no server holds any of this — it is a keypair in a file on this machine'
-      lines={lines}
-      footer={[
-        { keys: 'r', label: revealed ? 'hide phrase' : 'reveal phrase' },
-        { keys: 'esc', label: 'close' }
-      ]}
-      onKey={(input) => {
-        if (input === 'r') setRevealed((current) => !current)
-      }}
+      fields={fields}
+      revealed={revealed}
+      onCopy={onCopy}
+      onCancel={onCancel}
+      backdrop={backdrop}
+    />
+  )
+}
+
+/**
+ * The string that admits the next member of a room.
+ *
+ * It is one field rather than several because it is one secret: the room key
+ * and the key that decrypts the room, in a string short enough to send someone
+ * and long enough that nobody types it twice.
+ */
+export function InviteFloat ({ theme, terminal, room, onCancel, onCopy, backdrop }) {
+  const fields = useMemo(() => [
+    {
+      label: 'Invite string',
+      value: room.invite,
+      copyAs: `the invite to #${room.name}`,
+      secret: true,
+      tag: room.closed ? 'admits nobody — the room is closed' : 'anyone who has it can read and post',
+      tone: 'danger',
+      note: 'share it out of band. it is the room key and its encryption key.'
+    }
+  ], [room])
+
+  return (
+    <KeyFloat
+      theme={theme}
+      terminal={terminal}
+      title={`Invite to #${room.name}`}
+      icon={theme.icons.key}
+      subtitle={room.closed
+        ? 'the room is closed, so this admits nobody until you /reopen it'
+        : 'there is no server to revoke this — treat it like a password'}
+      fields={fields}
+      revealed
+      onCopy={onCopy}
       onCancel={onCancel}
       backdrop={backdrop}
     />

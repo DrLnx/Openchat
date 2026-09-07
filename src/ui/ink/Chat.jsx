@@ -15,13 +15,24 @@
 // wrapped text with nothing to its left floats in the middle of the pane and
 // gives the eye nothing to come back to at the start of each line; a single
 // character does, and costs one column.
+//
+// Three things share the marker column, and between them they are everything
+// the eye needs before it starts reading a line: a dot in the speaker's own
+// colour, a caret when the speaker is you, and a solid bar when the line is
+// talking to you. Everything else in a row — the clock, the name, the body — is
+// text you have to actually read.
+//
+// A rule with the date on it goes in wherever the day changes. It is the only
+// thing in the pane that is not a message, and it is there because a clock
+// alone cannot tell you whether "09:12" was this morning or last Thursday.
 
 import React from 'react'
 import { Text } from 'ink'
 
 import { wrap, fit, truncate } from '../model/text.js'
 import {
-  displayName, formatBytes, formatTime, formatSystemEvent, formatNickChange
+  displayName, formatBytes, formatTime, formatDay, sameDay,
+  formatSystemEvent, formatNickChange
 } from '../model/format.js'
 
 /** Columns for the clock, the marker, the name and the margin rule. */
@@ -82,11 +93,30 @@ export function chatRows ({
 
   let lastAuthor = null
   let lastTs = 0
+  let lastDay = null
+
+  // Detail lines — notices, joins, renames — start where a message body starts,
+  // so the pane has one text column rather than two. The mark that says what
+  // kind of line it is goes in the two columns before it.
+  const indent = narrow ? 0 : gutter - 2
+  const detail = (lines, color, mark) => addDetail(rows, lines, color, theme, indent, mark)
 
   for (const entry of entries) {
+    // Whatever else it is, it happened on a day, and the day is worth saying
+    // once when it changes rather than never.
+    if (lastDay !== null && !sameDay(lastDay, entry.ts)) {
+      lastAuthor = null
+      rows.push(dayRule(entry.ts, usable, theme, muted, rows.length))
+    }
+    lastDay = entry.ts
+
     if (entry.kind === 'notice') {
       lastAuthor = null
-      addDetail(rows, noticeLines(entry.notice, usable), noticeColor(entry.notice, theme, muted), theme)
+      detail(
+        wrapDetail(String(entry.notice.text), usable, indent),
+        noticeColor(entry.notice, theme, muted),
+        noticeMark(entry.notice, theme)
+      )
       continue
     }
 
@@ -94,13 +124,13 @@ export function chatRows ({
 
     if (message.type === 'system') {
       lastAuthor = null
-      addDetail(rows, wrapDetail(formatSystemEvent(message, members), usable), dye(theme.subtle), theme)
+      detail(wrapDetail(formatSystemEvent(message, members), usable, indent), dye(theme.subtle), icons.sep)
       continue
     }
 
     if (message.type === 'nick') {
       lastAuthor = null
-      addDetail(rows, wrapDetail(formatNickChange(message, entry.previousName), usable), dye(theme.subtle), theme)
+      detail(wrapDetail(formatNickChange(message, entry.previousName), usable, indent), dye(theme.subtle), icons.sep)
       continue
     }
 
@@ -136,8 +166,8 @@ export function chatRows ({
         add(
           <Text key={`h:${entry.key}`} wrap='truncate-end'>
             {timeColumns ? <Text color={dye(theme.subtle)}>{stamp(message.ts, settings.timestamps)}</Text> : ''}
-            <Text color={mentioned ? dye(theme.orange) : isSelf ? dye(theme.mode.insert) : author}>
-              {isSelf ? icons.self : mentioned ? icons.edge : icons.incoming}
+            <Text color={isSelf ? dye(theme.mode.insert) : author}>
+              {isSelf ? icons.self : icons.incoming}
             </Text>
             <Text color={isSelf ? dye(theme.mode.insert) : author} bold={!muted}>{` ${isSelf ? 'you' : name}`}</Text>
           </Text>
@@ -146,7 +176,9 @@ export function chatRows ({
       lines.forEach((line, i) => {
         add(
           <Text key={`b:${entry.key}:${rows.length}`} wrap='truncate-end'>
-            <Text color={theme.subtle}>{i === 0 ? '  ' : `${icons.bar} `}</Text>
+            <Text color={mentioned ? dye(theme.orange) : theme.subtle}>
+              {mentioned ? `${icons.edge} ` : i === 0 ? '  ' : `${icons.bar} `}
+            </Text>
             <Text color={bodyColor}>{line}</Text>
           </Text>
         )
@@ -171,13 +203,19 @@ export function chatRows ({
                 </Text>
                 )
               : ''}
-            <Text color={mentioned ? dye(theme.orange) : isSelf ? dye(theme.mode.insert) : author}>
-              {head ? `${isSelf ? icons.self : mentioned ? icons.edge : icons.incoming} ` : '  '}
+            <Text color={isSelf ? dye(theme.mode.insert) : author}>
+              {head ? `${isSelf ? icons.self : icons.incoming} ` : '  '}
             </Text>
             <Text color={isSelf ? dye(theme.mode.insert) : author} bold={head && !muted}>
               {fit(head ? (isSelf ? 'you' : name) : '', NAME_COLUMNS)}
             </Text>
-            <Text color={theme.subtle}>{head ? '  ' : `${icons.bar} `}</Text>
+            {/* A line that says your name gets a solid bar down its whole
+                left edge rather than one mark on its first row: what you want
+                to find when you come back to a room is the block, and a block
+                is only visible if it is marked all the way down. */}
+            <Text color={mentioned ? dye(theme.orange) : theme.subtle}>
+              {mentioned ? `${icons.edge} ` : head ? '  ' : `${icons.bar} `}
+            </Text>
             <Text color={bodyColor}>{line}</Text>
           </Text>
         )
@@ -185,13 +223,7 @@ export function chatRows ({
     }
 
     if (message.type === 'file') {
-      addDetail(
-        rows,
-        [attachmentLine(message, attachments[message.id], theme, muted, usable)],
-        dye(theme.dim),
-        theme,
-        narrow ? 2 : timeColumns + MARK_COLUMNS
-      )
+      detail([attachmentLine(message, attachments[message.id], theme, muted, usable)], dye(theme.dim), icons.detail)
     }
 
     lastAuthor = message.author
@@ -236,31 +268,51 @@ export function scrollToRow (index, total, height) {
   return Math.max(0, Math.min(maxScroll(total, height), total - height - start))
 }
 
-function addDetail (rows, lines, color, theme, indent = 2) {
+function addDetail (rows, lines, color, theme, indent = 2, mark = theme.icons.detail) {
   lines.forEach((line, i) => {
     rows.push(
       <Text key={`d:${rows.length}`} wrap='truncate-end'>
         <Text>{' '.repeat(indent)}</Text>
-        <Text color={theme.subtle}>{i === 0 ? `${theme.icons.detail}  ` : '   '}</Text>
+        {/* The mark is drawn once and continued by a rule, the same way a
+            wrapped message is: the eye needs the left edge of the block to be
+            in one place, not to move when a line runs on. */}
+        <Text color={i === 0 ? color : theme.subtle}>{i === 0 ? `${mark} ` : `${theme.icons.bar} `}</Text>
         {typeof line === 'string' ? <Text color={color}>{line}</Text> : line}
       </Text>
     )
   })
 }
 
-function wrapDetail (text, usable) {
-  return wrap(text, Math.max(8, usable - 5))
+/** The rule that says the day changed here. */
+function dayRule (ts, usable, theme, muted, key) {
+  const label = formatDay(ts)
+  const room = Math.max(0, usable - label.length - 4)
+  const left = Math.floor(room / 2)
+
+  return (
+    <Text key={`day:${key}`} wrap='truncate-end'>
+      <Text color={theme.subtle}>{`${'\u2500'.repeat(left)}  `}</Text>
+      <Text color={muted ? theme.subtle : theme.dim}>{label}</Text>
+      <Text color={theme.subtle}>{`  ${'\u2500'.repeat(Math.max(0, room - left))}`}</Text>
+    </Text>
+  )
 }
 
-function noticeLines (notice, usable) {
-  const mark = notice.level === 'error' ? '✗ ' : notice.level === 'warn' ? '▲ ' : ''
+function wrapDetail (text, usable, indent = 2) {
+  const columns = Math.max(8, usable - indent - 2)
+  // Command output arrives pre-formatted — /help lines things up in columns —
+  // so its own newlines are kept and only over-long lines are wrapped.
   const out = []
-  // Command output arrives pre-formatted — /help and /members line things up in
-  // columns — so its own newlines are kept and only over-long lines are wrapped.
-  String(notice.text).split('\n').forEach((line, i) => {
-    for (const wrapped of wrap((i === 0 ? mark : '') + line, Math.max(8, usable - 5))) out.push(wrapped)
-  })
+  for (const line of String(text ?? '').split('\n')) {
+    for (const wrapped of wrap(line, columns)) out.push(wrapped)
+  }
   return out
+}
+
+function noticeMark (notice, theme) {
+  if (notice.level === 'error') return theme.icons.error
+  if (notice.level === 'warn') return theme.icons.warn
+  return theme.icons.detail
 }
 
 function noticeColor (notice, theme, muted) {

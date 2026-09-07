@@ -137,15 +137,20 @@ const PALETTES = {
 // set stays legible on the theme's own background.
 const AUTHOR_KEYS = ['cyan', 'green', 'yellow', 'magenta', 'blue', 'orange', 'teal', 'accent2']
 
-// A note on `incoming`: it is deliberately blank. Somebody else speaking is the
-// ordinary case and does not need marking — the author's name, in their own
-// colour, already says who it is. The marker column is spent on the two things
-// that are not ordinary: a line you wrote, and a line that mentions you.
+// A note on the marker column. It is one cell, and three things want it: a line
+// somebody else wrote, a line you wrote, and a line that is talking to you.
+//
+// The last two are the ones that have to be found at a glance, so they get the
+// shapes that carry furthest — a caret for yours, a solid bar for a mention.
+// What is left for everybody else is a dot, drawn in that person's own colour.
+// It is the quietest mark on the screen on purpose: it is not there to be
+// noticed, it is there so a block of text has a coloured edge to start from
+// instead of beginning in the middle of an empty pane.
 const GLYPHS = {
   plain: {
     room: '#',
     dm: '@',
-    incoming: ' ',
+    incoming: '●',
     self: '›',
     detail: '⎿',
     error: '✗',
@@ -165,7 +170,11 @@ const GLYPHS = {
     edge: '▌',
     sep: '·',
     ellipsis: '…',
-    key: '⚿',
+    // U+26BF, the obvious choice for a key, is missing from most of the fonts
+    // people actually run and draws as a replacement box in all of them. A
+    // circled dot is in every font that has ever shipped with a terminal, and
+    // at this size it reads as a keyhole, which is close enough.
+    key: '⊙',
     account: '◆'
   },
   nerd: {
@@ -177,7 +186,7 @@ const GLYPHS = {
     // misaligns every row in the conversation list.
     room: '#',
     dm: '@',
-    incoming: ' ',
+    incoming: '●',
     self: '›',
     detail: '⎿',
     error: '',

@@ -78,7 +78,9 @@ export function WhichKey ({ theme, terminal, pending, candidates }) {
     })
   }
 
-  const chord = describeChord(pending.join('')) || '\u2423'
+  // The chord so far, then an ellipsis: this window is the app waiting for the
+  // rest of it, and saying so costs two cells.
+  const chord = `${describeChord(pending.join('')) || '\u2423'} \u2026`
   const entries = [...seen.values()]
   const rows = []
   for (let i = 0; i < entries.length; i += columns) rows.push(entries.slice(i, i + columns))

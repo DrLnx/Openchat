@@ -24,6 +24,34 @@ export function formatTime (ts) {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/**
+ * The day a timestamp falls on, as a chat client says it: `today`, `yesterday`,
+ * or a date. Used for the rule the transcript draws when the day changes —
+ * without one, a conversation that has been going for a week is one wall of
+ * clock times that all look like they happened this afternoon.
+ */
+export function formatDay (ts, now = Date.now()) {
+  const day = new Date(ts)
+  const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const days = Math.round((midnight(new Date(now)) - midnight(day)) / 86400000)
+
+  if (days === 0) return 'today'
+  if (days === 1) return 'yesterday'
+
+  const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][day.getMonth()]
+  const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][day.getDay()]
+  const year = day.getFullYear() === new Date(now).getFullYear() ? '' : ` ${day.getFullYear()}`
+
+  return `${weekday} ${day.getDate()} ${month}${year}`
+}
+
+/** Whether two timestamps fall on the same calendar day. */
+export function sameDay (a, b) {
+  const x = new Date(a)
+  const y = new Date(b)
+  return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate()
+}
+
 export function formatBytes (bytes) {
   if (!Number.isFinite(bytes) || bytes < 0) return '?'
   if (bytes < 1024) return `${bytes}B`

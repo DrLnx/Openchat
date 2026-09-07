@@ -8,11 +8,13 @@ import { render as inkRender } from 'ink'
 import { EventEmitter } from 'node:events'
 
 export const DEFAULT_COLUMNS = 72
+export const DEFAULT_ROWS = 24
 
 class HarnessStdout extends EventEmitter {
-  constructor (columns) {
+  constructor (columns, rows) {
     super()
     this.columns = columns
+    this.rows = rows
     this.lastFrame = ''
   }
 
@@ -47,10 +49,10 @@ class HarnessStdin extends EventEmitter {
 
 /**
  * @param {React.ReactElement} node
- * @param {{ columns?: number }} [opts]
+ * @param {{ columns?: number, rows?: number }} [opts]
  */
-export function renderApp (node, { columns = DEFAULT_COLUMNS } = {}) {
-  const stdout = new HarnessStdout(columns)
+export function renderApp (node, { columns = DEFAULT_COLUMNS, rows = DEFAULT_ROWS } = {}) {
+  const stdout = new HarnessStdout(columns, rows)
   const stdin = new HarnessStdin()
 
   // debug:true makes Ink write the full static output plus the live region on
@@ -88,6 +90,8 @@ export const KEY = {
   down: `${String.fromCharCode(27)}[B`,
   up: `${String.fromCharCode(27)}[A`,
   enter: '\r',
+  escape: String.fromCharCode(27),
+  tab: '\t',
   shiftTab: `${String.fromCharCode(27)}[Z`
 }
 

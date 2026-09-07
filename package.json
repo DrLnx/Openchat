@@ -48,6 +48,7 @@
     "test": "node --import ./scripts/jsx-register.js --test --test-concurrency=1 \"test/**/*.test.js\"",
     "test:unit": "node --import ./scripts/jsx-register.js --test \"test/unit/*.test.js\"",
     "record": "node scripts/record-demo.js",
+    "shot": "FORCE_COLOR=3 COLORTERM=truecolor TERM=xterm-256color node --import ./scripts/jsx-register.js scripts/screenshot.js",
     "start": "node bin/openchat.js",
     "demo": "node --import ./scripts/jsx-register.js scripts/demo-tour.js",
     "lint": "standard",

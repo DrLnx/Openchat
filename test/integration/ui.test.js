@@ -37,6 +37,12 @@ async function type (app, line) {
   await sleep(60)
 }
 
+/** Close whatever floating window is open. */
+async function escape (app) {
+  app.stdin.write(String.fromCharCode(27))
+  await sleep(80)
+}
+
 /** The last rendered frame, with ANSI styling stripped. */
 function screen (app) {
   // eslint-disable-next-line no-control-regex
@@ -105,9 +111,17 @@ test('typing a message sends it; typing a slash command runs it', async (t) => {
   await waitFor(async () => screen(app).includes('hello world'), { message: 'the sent message' })
   assert.match(screen(app), /› you\s+hello world/, 'your own message echoes behind a caret')
 
+  // An invite is a secret and a thing you paste somewhere else, so it opens in
+  // a window rather than scrolling past in the conversation.
   await type(app, '/invite')
-  await waitFor(async () => screen(app).includes('openchat1:'), { message: 'the invite output' })
+  await waitFor(async () => screen(app).includes('openchat1:'), { message: 'the invite window' })
   assert.match(screen(app), /share it out of band/i, 'the warning is shown with the invite')
+  assert.match(screen(app), /c copy/, 'and it can be taken away rather than read off the screen')
+
+  await escape(app)
+  await waitFor(async () => !screen(app).includes('openchat1:'), {
+    message: 'the invite to leave the screen with the window'
+  })
 
   await type(app, '/nick ada')
   await waitFor(async () => screen(app).includes('you are now ada'), { message: 'the nick change' })
@@ -139,19 +153,29 @@ test('the app can do the things that used to need a shell command', async (t) =>
 
   await type(app, '/invite')
   await waitFor(async () => screen(app).includes('openchat1:'), { message: 'the invite' })
+  await escape(app)
 
   // The recovery phrase has to be reachable without leaving the app, since
-  // there is no longer a shell command that shows it.
+  // there is no longer a shell command that shows it. Asking for it is asking
+  // to see it, so it arrives already revealed.
   await type(app, '/backup')
   await waitFor(async () => screen(app).includes('Recovery phrase'), { message: 'the phrase' })
   const words = alice.identity.mnemonic.split(' ')
   assert.ok(screen(app).includes(words[0]), 'the real phrase is shown')
   assert.match(screen(app), /post as you/, 'warns what it is worth')
+  await escape(app)
 
+  // The same window, opened at the other end: your key, whole and unwrapped,
+  // which is the only form of it worth having.
   await type(app, '/whoami')
   await waitFor(async () => screen(app).includes(alice.identity.publicKeyHex), {
     message: 'your key'
   })
+  assert.ok(
+    screen(app).split('\n').some((line) => line.includes(alice.identity.publicKeyHex)),
+    'on one line, so it can be copied out of the terminal as well as with c'
+  )
+  await escape(app)
 
   await type(app, '/profiles')
   await waitFor(async () => screen(app).includes('--profile'), {
@@ -179,7 +203,7 @@ test('typing a slash opens a command menu', async (t) => {
   await waitFor(async () => screen(app).includes('join a room from an invite string'), {
     message: 'the command menu'
   })
-  assert.match(screen(app), /print an invite for the current room/, 'every match is listed')
+  assert.match(screen(app), /show this room's invite/, 'every match is listed')
 
   app.stdin.write('me')
   await waitFor(
@@ -284,9 +308,17 @@ test('the UI comes up with no rooms and says what to do', async (t) => {
   const frame = screen(app)
   assert.match(frame, /end-to-end encrypted/, 'the empty pane still introduces itself')
   assert.match(frame, /nothing open/, 'the title bar says there is nothing open')
-  assert.match(frame, /find someone to message/, 'tells you how to reach someone')
+  assert.match(frame, /message someone/, 'tells you how to reach someone')
   assert.match(frame, /no rooms yet/, 'and so does the empty conversation list')
-  assert.ok(frame.includes(alice.identity.publicKeyHex), 'shows your key, which is how people reach you')
+
+  // Your key is what people reach you on, so the pane says you have one and
+  // where it lives — but it does not print it. A 64-character key on the
+  // welcome screen is a key on the screen of everyone you ever show this app
+  // to, and the one thing you do with it is paste it, which you cannot do with
+  // something that has been wrapped across a pane.
+  assert.ok(frame.includes(alice.identity.publicKeyHex.slice(0, 16)), 'enough of the key to recognise it')
+  assert.ok(!frame.includes(alice.identity.publicKeyHex), 'but not the whole thing, unasked')
+  assert.match(frame, /␣ k for all of it/, 'and says which key opens the window that has it')
 })
 
 test('leaving a room tells the room, and takes it off this machine', async (t) => {
