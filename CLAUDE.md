@@ -158,5 +158,6 @@ loaded by Node, never inlined. `__OPENCHAT_VERSION__` is defined at build time
 ([scripts/build.js](scripts/build.js)) and falls back to `0.0.0-dev` when running from source.
 [bin/openchat.js](bin/openchat.js) is a shim that requires `dist/` to exist.
 
-Releases are manual — see [RELEASING.md](RELEASING.md); user-visible changes go in `CHANGELOG.md`
-under `[Unreleased]`, written as prose about what changed and why.
+User-visible changes go in `CHANGELOG.md` under `[Unreleased]`, written as prose about what
+changed and why. Cutting a release — tagging, and whatever is published from that tag — happens
+outside this repo; nothing here automates it.

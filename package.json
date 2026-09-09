@@ -1,6 +1,6 @@
 {
   "name": "openchat",
-  "version": "1.0.0",
+  "version": "1.0.0-alpha.1",
   "description": "Serverless, end-to-end encrypted group chat and DMs for your terminal, over a P2P DHT",
   "keywords": [
     "chat",

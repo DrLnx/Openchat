@@ -86,76 +86,8 @@ you out — because there is nobody in the middle at all.
 
 ## Install
 
-> **The v1.0.0 packages go live when the tag is pushed.** npm, the AUR and
-> Homebrew all publish from that tag, so the commands below are what they will
-> be. Until then use [From source](#from-source) — that works today. The steps
-> are in [RELEASING.md](RELEASING.md).
-
-Everything needs **Node.js 22 or newer** and nothing else.
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-#### npm — any platform
-
-```bash
-npm install -g openchat
-```
-
-</td>
-<td width="50%" valign="top">
-
-#### Arch, Manjaro, EndeavourOS
-
-```bash
-yay -S openchat        # or: paru -S openchat
-```
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-#### macOS and Linux — Homebrew
-
-```bash
-brew install n3xtpy/openchat/openchat
-```
-
-</td>
-<td width="50%" valign="top">
-
-#### One line
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/n3xtpy/Openchat/main/install.sh | sh
-```
-
-</td>
-</tr>
-</table>
-
-The one-line installer checks your Node version and runs the npm install above —
-nothing else. Piping a script from the internet into a shell is a habit worth being
-suspicious of, especially from a security tool, so [read it first](install.sh); it
-is short on purpose.
-
-<details>
-<summary><b>Building the AUR package by hand</b></summary>
-
-<br>
-
-```bash
-git clone https://aur.archlinux.org/openchat.git
-cd openchat && makepkg -si
-```
-
-The `PKGBUILD` lives in [`packaging/PKGBUILD`](packaging/PKGBUILD).
-
-</details>
-
-#### From source
+**Node.js 22 or newer**, and nothing else. openchat is built from source — there
+is no package to install yet.
 
 ```bash
 git clone https://github.com/n3xtpy/Openchat.git
@@ -206,7 +138,7 @@ there, sitting in the middle of the pane:
 ╚██████╔╝██║     ███████╗██║ ╚████║╚██████╗██║  ██║██║  ██║   ██║
  ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
 
-end-to-end encrypted · no server · no account · v1.0.0
+end-to-end encrypted · no server · no account · v1.0.0-alpha.1
 
 ╭─ ada ─────────────────────────── ◆ default ─╮
 │ 22f071ec5f9f80f4739edd56…                   │
