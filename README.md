@@ -138,7 +138,7 @@ there, sitting in the middle of the pane:
 ╚██████╔╝██║     ███████╗██║ ╚████║╚██████╗██║  ██║██║  ██║   ██║
  ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
 
-end-to-end encrypted · no server · no account · v1.0.0-alpha.1
+end-to-end encrypted · no server · no account · v0.1.0-alpha.1
 
 ╭─ ada ─────────────────────────── ◆ default ─╮
 │ 22f071ec5f9f80f4739edd56…                   │

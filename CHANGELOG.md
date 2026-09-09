@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0-alpha.1] — 2026-09-09
+## [0.1.0-alpha.1] — 2026-09-09
 
 ### Added
 
@@ -391,9 +391,11 @@ All notable changes to this project are documented here. This project follows
 - Unread counts survive a refresh instead of being cleared whenever the
   conversation list was re-read.
 
-## [0.1.0] — 2026-08-31
+## [0.1.0] — never released
 
-First release. Serverless, end-to-end encrypted chat for the terminal.
+Written 2026-08-31 and superseded before a tag ever existed, so it is kept here
+as the record of when this work landed rather than as something anyone can
+install. Serverless, end-to-end encrypted chat for the terminal.
 
 ### Added
 
