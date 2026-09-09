@@ -1,14 +1,21 @@
 // CLI entry.
 //
-// There is one command: `openchat`. Everything you do — opening a room,
-// inviting people, messaging someone directly, managing contacts, closing or
-// handing over a room — happens inside the app, as a slash command.
+// Everything you *do* — opening a room, inviting people, messaging someone
+// directly, managing contacts, closing or handing over a room — happens inside
+// the app, as a slash command. A chat client is something you sit inside, not
+// something you drive one shell invocation at a time, and a second surface
+// would be a second place for behaviour to drift out of step.
 //
-// That is a deliberate choice rather than an omission. A chat client is
-// something you sit inside, not something you drive one shell invocation at a
-// time, and a second surface would be a second place for behaviour to drift
-// out of step. `--profile` is the one flag, because which account you are is a
-// property of the session you are starting, not something you do once inside it.
+// Which account you are is the exception, and it has to be, because it is the
+// one decision that is already made by the time the app is on screen. Two
+// accounts on this machine share nothing — separate keys, separate rooms,
+// separate storage — and an account can only be open in one process at a time,
+// so "which one" is a property of the terminal you are starting, not something
+// you do once you are inside it.
+//
+// So it is the first argument: `openchat work` logs into the account called
+// work, and creates it if this machine has never seen it. `--profile` still
+// does the same thing, for anyone with it in a script.
 
 import React from 'react'
 import { render } from 'ink'
@@ -18,7 +25,9 @@ import { MouseContext, createMouseSource } from './ui/ink/mouse.js'
 import { enterFullscreen } from './ui/ink/fullscreen.js'
 import { hasIdentity } from './core/identity.js'
 import { profileDir, currentProfile, sanitizeProfile } from './core/store.js'
+import { listAccounts, resolveAccountArg } from './core/accounts.js'
 import { helpText } from './ui/model/commands.js'
+import { shortKey } from './ui/model/format.js'
 import { runShutdown } from './core/shutdown.js'
 
 /* global __OPENCHAT_VERSION__ */
@@ -28,10 +37,17 @@ const VERSION = typeof __OPENCHAT_VERSION__ === 'string' ? __OPENCHAT_VERSION__ 
 
 const USAGE = `openchat ${VERSION} — serverless, end-to-end encrypted chat for your terminal
 
-  openchat                     open the app
-  openchat --profile <name>    open it as a different account on this machine
+  openchat                     open the account you used last
+  openchat <account>           open that account, and create it if it is new
+  openchat --list              the accounts on this machine
+  openchat --profile <name>    the same as \`openchat <account>\`
   openchat --help              this message
   openchat --version           print the version
+
+An account is a keypair in a directory and nothing else — there is nobody to
+register one with. Two of them share no rooms, no contacts and no settings, so
+\`openchat work\` and \`openchat personal\` are two different people as far as
+anyone else on the network is concerned.
 
 Everything else happens inside the app:
 
@@ -46,7 +62,7 @@ is required.
 
 On first run openchat generates a keypair for you — there is no account to
 sign up for and no server to sign up to. Save the recovery phrase it shows
-you; /backup shows it again, and nothing else can reissue it.
+you; :backup shows it again, and nothing else can reissue it.
 `
 
 try {
@@ -58,29 +74,52 @@ try {
 }
 
 async function main (argv) {
-  const { profile, unknown } = parse(argv)
+  const { flags, positional } = parse(argv)
 
-  if (unknown.length) {
-    // Someone typing `openchat room create foo` deserves to be told where that
-    // lives now, not just that it is wrong.
-    console.error(`openchat: unexpected argument "${unknown[0]}"\n`)
-    console.error('openchat is driven from inside the app — open it and use a slash command.')
-    console.error(`For "${unknown[0]}", try /${unknown[0]} once the app is open, or /help to see them all.\n`)
-    console.log(USAGE)
-    process.exit(1)
-  }
-
-  if (profile.help) {
+  if (flags.help) {
     console.log(USAGE)
     return
   }
 
-  if (profile.version) {
+  if (flags.version) {
     console.log(VERSION)
     return
   }
 
-  return launch(profile.name || (await currentProfile()))
+  if (flags.list) return list()
+
+  const named = await resolveAccountArg(positional)
+  if (named === null) return misuse(positional)
+
+  return launch(flags.name || named || (await currentProfile()))
+}
+
+/** Somebody typed a subcommand. Say where that went, rather than "unknown". */
+function misuse (positional) {
+  const first = positional[0] ?? ''
+
+  console.error(`openchat: "${positional.join(' ')}" is not an account or a flag\n`)
+  console.error('openchat is driven from inside the app — open it and use a slash command.')
+  console.error(`For "${first}", try :${first} once the app is open, or :help to see them all.\n`)
+  console.log(USAGE)
+  process.exit(1)
+}
+
+/** Every account on this machine, and how to open one. */
+async function list () {
+  const accounts = await listAccounts()
+  const width = Math.max(...accounts.map((a) => a.profile.length), 7)
+
+  console.log('accounts on this machine\n')
+  for (const account of accounts) {
+    const key = account.publicKey ? `${shortKey(account.publicKey, 16)}…` : 'not set up yet'
+    const rooms = account.ready ? `${account.rooms} ${account.rooms === 1 ? 'room' : 'rooms'}` : ''
+    console.log((
+      `${account.current ? '▸' : ' '} ${account.profile.padEnd(width)}  ` +
+      `${(account.nick || '—').padEnd(14)}  ${key.padEnd(18)}  ${rooms}`
+    ).trimEnd())
+  }
+  console.log('\nopenchat <account> opens one. A name this machine has not seen is a new account.')
 }
 
 /**
@@ -112,20 +151,21 @@ function network () {
 }
 
 function parse (argv) {
-  const result = { name: null, help: false, version: false }
-  const unknown = []
+  const flags = { name: null, help: false, version: false, list: false }
+  const positional = []
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
 
-    if (arg === '--help' || arg === '-h') result.help = true
-    else if (arg === '--version' || arg === '-v') result.version = true
-    else if (arg === '--profile' || arg === '-p') result.name = sanitizeProfile(argv[++i])
-    else if (arg.startsWith('--profile=')) result.name = sanitizeProfile(arg.slice('--profile='.length))
-    else unknown.push(arg)
+    if (arg === '--help' || arg === '-h') flags.help = true
+    else if (arg === '--version' || arg === '-v') flags.version = true
+    else if (arg === '--list' || arg === '-l') flags.list = true
+    else if (arg === '--profile' || arg === '-p') flags.name = sanitizeProfile(argv[++i])
+    else if (arg.startsWith('--profile=')) flags.name = sanitizeProfile(arg.slice('--profile='.length))
+    else positional.push(arg)
   }
 
-  return { profile: result, unknown }
+  return { flags, positional }
 }
 
 async function launch (profileName) {

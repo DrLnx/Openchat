@@ -1,7 +1,14 @@
-// Tier 1 — portable. Slash-command parsing.
+// Tier 1 — portable. Command parsing.
 //
-// Parsing is separated from execution so both front ends share it: the Ink app
-// and the browser harness parse identically, and the parser can be tested
+// Commands are typed into a command line of their own, opened with `:` the way
+// vim's is, rather than by prefixing a message with a slash. That is not a
+// cosmetic change: with a slash prefix, the message box has two jobs and every
+// line you type has to be inspected to find out which one it is doing. A stray
+// leading slash sent a command instead of a message, and a message that
+// genuinely started with a slash needed an escape hatch to send at all.
+//
+// So the message box only ever sends messages now, and `:` opens somewhere to
+// type a command. Parsing is separated from execution so it can be tested
 // without a terminal, a network, or a room.
 
 import { rank } from './fuzzy.js'
@@ -45,31 +52,43 @@ const BY_NAME = new Map(COMMANDS.map((c) => [c.name, c]))
 const RAW_ARG = new Set(['join', 'file', 'nick', 'download', 'dm', 'switch', 'new', 'transfer', 'remove', 'allow'])
 
 /**
- * @param {string} input a raw line from the input bar
- * @returns {{ kind: 'text', body: string }
- *          | { kind: 'command', name: string, arg: string, args: string[] }
- *          | { kind: 'error', message: string }
- *          | { kind: 'empty' }}
+ * A line from the message box. It is a message, whatever is in it.
+ *
+ * @param {string} input
+ * @returns {{ kind: 'text', body: string } | { kind: 'empty' }}
  */
 export function parseInput (input) {
   const line = input.trim()
   if (line === '') return { kind: 'empty' }
-  if (!line.startsWith('/')) return { kind: 'text', body: input.trim() }
+  return { kind: 'text', body: line }
+}
 
-  // "//foo" escapes to a literal message starting with a slash.
-  if (line.startsWith('//')) return { kind: 'text', body: line.slice(1) }
+/**
+ * A line from the command line: a name, then whatever it takes.
+ *
+ * A leading `:` is tolerated because that is what is on screen while you type
+ * one, and somebody who types it twice out of habit means the same thing.
+ *
+ * @param {string} input
+ * @returns {{ kind: 'command', name: string, arg: string, args: string[] }
+ *          | { kind: 'error', message: string }
+ *          | { kind: 'empty' }}
+ */
+export function parseCommand (input) {
+  const line = String(input ?? '').trim().replace(/^:+/, '').trim()
+  if (line === '') return { kind: 'empty' }
 
   const spaceAt = line.indexOf(' ')
-  const name = (spaceAt === -1 ? line.slice(1) : line.slice(1, spaceAt)).toLowerCase()
+  const name = (spaceAt === -1 ? line : line.slice(0, spaceAt)).toLowerCase()
   const rest = spaceAt === -1 ? '' : line.slice(spaceAt + 1).trim()
 
   const command = BY_NAME.get(name)
   if (!command) {
-    return { kind: 'error', message: `unknown command: /${name} — try /help` }
+    return { kind: 'error', message: `unknown command: ${name} — :help lists them all` }
   }
 
   if (command.args && rest === '') {
-    return { kind: 'error', message: `/${name} needs an argument: /${name} ${command.args}` }
+    return { kind: 'error', message: `${name} needs an argument: :${name} ${command.args}` }
   }
 
   return {
@@ -81,37 +100,47 @@ export function parseInput (input) {
 }
 
 /**
- * Commands matching what has been typed so far, for the completion menu.
- * Returns the command objects, so the menu can show each one's help text.
+ * Commands matching what has been typed into the command line so far.
  *
- * Matching is fuzzy over the *name* — `/dl` finds `/download` — and
- * deliberately not over the help text. Enter completes whatever the menu has
- * highlighted, so a menu that matched prose would turn `/nope` into some
- * command whose description happens to contain those letters, instead of the
- * error it should be. Searching what a command *does* is the command palette's
- * job, where nothing is completed on your behalf.
+ * Matching is fuzzy over the *name* — `dl` finds `download` — with an exact
+ * prefix first of all: typing `n` must offer `new` before anything that merely
+ * contains an n.
  *
- * Once there is a space the command name is settled and you are typing an
- * argument, so the menu gets out of the way.
+ * What a command *does* is searched only when nothing is called what you typed.
+ * It is a fallback, not a second ranking: `inv` is the start of `invite`, and
+ * the words "invite" and "no invite needed" appear in half the help lines, so
+ * mixing the two would put `dm` and `join` under `:inv` for no reason anybody
+ * could see. Type something that is not a command name and you get to search
+ * by meaning instead.
+ *
+ * Once there is a space the name is settled and you are typing an argument, so
+ * the list shows just that command and gets out of the way.
  */
 export function matchCommands (partial) {
-  if (!partial.startsWith('/') || partial.includes(' ')) return []
-  const query = partial.slice(1)
+  const query = String(partial ?? '').replace(/^:+/, '')
   if (query === '') return COMMANDS
 
-  // An exact prefix always wins its own list: typing `/n` must offer `/new`
-  // before it offers anything that merely contains an n.
-  const prefix = COMMANDS.filter((c) => c.name.startsWith(query.toLowerCase()))
+  const spaceAt = query.indexOf(' ')
+  if (spaceAt !== -1) {
+    const named = BY_NAME.get(query.slice(0, spaceAt).toLowerCase())
+    return named ? [named] : []
+  }
+
+  const lower = query.toLowerCase()
+  const prefix = COMMANDS.filter((c) => c.name.startsWith(lower))
   const fuzzy = rank(COMMANDS, query, { key: (c) => c.name })
     .map((match) => match.item)
     .filter((c) => !prefix.includes(c))
 
-  return [...prefix, ...fuzzy]
+  const byName = [...prefix, ...fuzzy]
+  if (byName.length > 0) return byName
+
+  return COMMANDS.filter((c) => c.help.toLowerCase().includes(lower))
 }
 
 /** Where the query matched a command's name, for highlighting the menu. */
 export function matchPositions (partial, name) {
-  const query = partial.replace(/^\//, '')
+  const query = String(partial ?? '').replace(/^:+/, '')
   if (!query) return []
   const match = rank([name], query)[0]
   return match ? match.positions : []
@@ -119,13 +148,15 @@ export function matchPositions (partial, name) {
 
 /** Names matching a partial input, for tab completion. */
 export function completions (partial) {
-  return matchCommands(partial).map((c) => `/${c.name}`)
+  return matchCommands(partial).map((c) => `:${c.name}`)
+}
+
+/** How a command reads on screen: `:dm <key|name>`. */
+export function usageOf (command) {
+  return `:${command.name}${command.args ? ' ' + command.args : ''}`
 }
 
 export function helpText () {
   const width = Math.max(...COMMANDS.map((c) => c.name.length + c.args.length + 2))
-  return COMMANDS.map((c) => {
-    const usage = `/${c.name}${c.args ? ' ' + c.args : ''}`
-    return `${usage.padEnd(width + 1)} ${c.help}`
-  }).join('\n')
+  return COMMANDS.map((c) => `${usageOf(c).padEnd(width + 1)} ${c.help}`).join('\n')
 }

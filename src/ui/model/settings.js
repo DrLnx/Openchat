@@ -3,7 +3,7 @@
 // One declarative table describes every setting: what it is called, what it can
 // hold, and one line of prose explaining it. The floating settings panel is
 // generated from this, so adding a setting is a single entry here rather than a
-// new widget, and the browser harness reads the same defaults.
+// new widget.
 //
 // Settings live in the profile's config.json alongside rooms and contacts, so
 // they are per-account — which is what you want when one account is your work
@@ -13,8 +13,10 @@ export const THEMES = [
   'tokyonight-storm',
   'tokyonight-night',
   'catppuccin-mocha',
+  'catppuccin-latte',
   'gruvbox-dark',
   'rose-pine',
+  'nord',
   'monochrome'
 ]
 

@@ -16,7 +16,7 @@ import path from 'node:path'
 
 import { App } from '../../src/ui/ink/App.jsx'
 import { MouseContext } from '../../src/ui/ink/mouse.js'
-import { floatLayout } from '../../src/ui/model/layout.js'
+import { floatLayout, screenLayout } from '../../src/ui/model/layout.js'
 import { Client } from '../../src/core/client.js'
 import { readConfig } from '../../src/core/store.js'
 import { createTestDht, TEST_HOST, waitFor, sleep } from '../helpers.js'
@@ -37,12 +37,23 @@ function screen (app) {
  * the only rounded box on screen that is indented — the prompt's box starts at
  * column zero.
  */
+/**
+ * The floating window on screen, as its own rectangle.
+ *
+ * A window is laid over the chat pane rather than over whole rows, so the
+ * conversation list is still drawn to the left of it and the lines have to be
+ * cut at the column the frame starts in.
+ */
 function floatFrame (app) {
   const lines = screen(app).split('\n')
-  const top = lines.findIndex((line) => /^ +╭─/.test(line))
+  const top = lines.findIndex((line) => line.includes('╭─'))
   if (top === -1) return []
-  const end = lines.findIndex((line, i) => i > top && /^ +╰/.test(line))
-  return lines.slice(top, end + 1)
+
+  const at = [...lines[top]].indexOf('╭')
+  const end = lines.findIndex((line, i) => i > top && [...line][at] === '╰')
+  if (end === -1) return []
+
+  return lines.slice(top, end + 1).map((line) => [...line].slice(at).join(''))
 }
 
 async function press (app, keys, wait = 120) {
@@ -88,7 +99,8 @@ test('escape leaves insert mode and i comes back to it', async (t) => {
 
   await press(app, [ESC])
   assert.match(screen(app), /NORMAL/, 'escape is normal mode')
-  assert.match(screen(app), /press i to write/, 'and says how to get back')
+  assert.match(screen(app), /i to write/, 'and the prompt says how to get back')
+  assert.match(screen(app), /: for a command/, 'and where commands go')
 
   // In normal mode a letter is a command, not text.
   await press(app, ['x'])
@@ -106,13 +118,18 @@ test('the leader key opens which-key, and a chord runs from it', async (t) => {
 
   await press(app, [ESC, ' '], 400)
   const menu = screen(app)
-  assert.match(menu, /→ find/, 'the find group is offered')
-  assert.match(menu, /→ Settings/, 'so is settings')
+  // A key that opens another menu rather than doing something says so with a
+  // `+`, the way which-key has always marked one — the distinction you need
+  // before committing to a chord.
+  assert.match(menu, /\+find/, 'the find group is offered, and marked as a group')
+  assert.match(menu, /settings/, 'so is settings, which is not one')
+  assert.match(menu, /esc cancel/, 'and the window says how to get out of it')
 
-  // Half a chord narrows the menu to what is still reachable.
+  // Half a chord narrows the menu to what is still reachable, and the window
+  // says which group you are now inside.
   await press(app, ['f'], 400)
-  assert.match(screen(app), /Find conversation/)
-  assert.ok(!screen(app).includes('→ Settings'), 'and drops what is not')
+  assert.match(screen(app), /find conversation/)
+  assert.ok(!screen(app).includes('settings'), 'and drops what is not')
 
   await press(app, ['f'])
   assert.match(screen(app), /Conversations/, 'the picker opened')
@@ -189,31 +206,36 @@ test('settings change the interface and are written to the account', async (t) =
   assert.ok(!screen(app).includes('Which-key delay'), 'the panel closed')
 })
 
-test('the command palette runs a command that needs no argument', async (t) => {
+test('a chord opens the command line, and it runs what is typed there', async (t) => {
   const { app } = await openApp(t)
 
   await press(app, [ESC, ' ', 'f', 'c'])
-  assert.match(screen(app), /Commands/)
+  assert.match(screen(app), /command/, 'the same window `:` opens')
 
   await press(app, ['whoami'])
   await press(app, ['\r'])
 
-  // /whoami is one of the commands that opens a window rather than writing
-  // into the conversation, and the palette has to run it the same way typing
-  // it does.
-  await waitFor(async () => screen(app).includes('Your keys'), { message: '/whoami to run' })
+  // :whoami is one of the commands that opens a window rather than writing
+  // into the conversation, and the command line has to run it the same way
+  // the chord for it does.
+  await waitFor(async () => screen(app).includes('Your keys'), { message: ':whoami to run' })
   assert.match(screen(app), /anyone who has it can reach you/, 'and says what the key is worth')
 })
 
-test('a command that takes an argument is left in the prompt to finish', async (t) => {
-  const { app } = await openApp(t)
+test('tab completes a command and leaves the cursor where its argument goes', async (t) => {
+  const { app, client } = await openApp(t)
 
-  await press(app, [ESC, ' ', 'f', 'c'])
-  await press(app, ['new'])
+  await press(app, [ESC, ':'])
+  await press(app, ['ne'])
+  await press(app, ['\t'])
+
+  await waitFor(async () => screen(app).includes(':new '), { message: 'the completed name' })
+  assert.match(screen(app), /open a new room you own/, 'with what it does still on screen')
+
+  // Completing is not confirming: nothing has run yet.
+  await press(app, ['standup'])
   await press(app, ['\r'])
-
-  await waitFor(async () => screen(app).includes('/new '), { message: 'the prompt to be primed' })
-  assert.match(screen(app), /INSERT/, 'and you are put back into insert mode to type it')
+  await waitFor(async () => client.activeTarget?.name === 'standup', { message: 'the room' })
 })
 
 test('a room can be created from a floating prompt rather than a command', async (t) => {
@@ -247,22 +269,25 @@ test('the floating windows are reachable by typing, not only by chord', async (t
   const { app, client } = await openApp(t)
 
   // The keymap is a shortcut, not the only door: someone who has never pressed
-  // space should still be able to find settings.
-  await press(app, ['/settings'])
+  // space should still be able to find settings by typing what it is called.
+  await press(app, [ESC, ':'])
+  await press(app, ['settings'])
   await press(app, ['\r'])
   await waitFor(async () => screen(app).includes('Auto-download limit'), {
     message: 'settings to open'
   })
 
   await press(app, [ESC])
-  await press(app, ['/theme gruvbox-dark'])
+  await press(app, [':'])
+  await press(app, ['theme gruvbox-dark'])
   await press(app, ['\r'])
 
   await waitFor(async () => (await readConfig(client.dir)).settings?.theme === 'gruvbox-dark', {
     message: 'the theme to change'
   })
 
-  await press(app, ['/theme nonsense'])
+  await press(app, [':'])
+  await press(app, ['theme nonsense'])
   await press(app, ['\r'])
   await waitFor(async () => screen(app).includes('themes: tokyonight-storm'), {
     message: 'the list of real themes'
@@ -287,7 +312,7 @@ test('a click in a picker opens the row it landed on', async (t) => {
 
   // The float is centred, so where it is depends on how big the terminal is:
   // the click has to be computed against the same size the app laid out for.
-  const layout = floatLayout(TERMINAL, { items: 2, maxRows: 22 })
+  const layout = floatLayout(screenLayout(TERMINAL), { items: 2, maxRows: 22 })
   const rows = floatFrame(app)
   assert.equal(rows.length, layout.height, 'the float is the height its geometry claims')
 
@@ -319,7 +344,7 @@ test('a click outside a float dismisses it', async (t) => {
   const before = client.activeId
 
   await press(app, [ESC, ' ', 'f', 'f'])
-  const layout = floatLayout(TERMINAL, { items: 2, maxRows: 22 })
+  const layout = floatLayout(screenLayout(TERMINAL), { items: 2, maxRows: 22 })
 
   mouse.events.emit('mouse', {
     type: 'press',

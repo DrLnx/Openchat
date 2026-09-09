@@ -9,7 +9,7 @@
 class Openchat < Formula
   desc "Serverless, end-to-end encrypted group chat and DMs for your terminal"
   homepage "https://github.com/n3xtpy/Openchat"
-  url "https://github.com/n3xtpy/Openchat/archive/refs/tags/v0.1.0.tar.gz"
+  url "https://github.com/n3xtpy/Openchat/archive/refs/tags/v1.0.0.tar.gz"
   sha256 "REPLACE_WITH_RELEASE_CHECKSUM"
   license "MIT"
 

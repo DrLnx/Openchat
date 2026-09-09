@@ -15,8 +15,8 @@ Bump `version` in `package.json`, add a section to `CHANGELOG.md`, commit.
 ## 1. Tag
 
 ```bash
-git tag -a v0.1.0 -m 'openchat 0.1.0'
-git push origin v0.1.0
+git tag -a v1.0.0 -m 'openchat 1.0.0'
+git push origin v1.0.0
 ```
 
 Several packaging steps below fetch the GitHub tarball for that tag, so tag
@@ -49,7 +49,7 @@ cp packaging/PKGBUILD aur-openchat/
 cd aur-openchat
 makepkg --printsrcinfo > .SRCINFO   # the AUR requires this file
 git add PKGBUILD .SRCINFO
-git commit -m 'openchat 0.1.0'
+git commit -m 'openchat 1.0.0'
 git push
 ```
 
@@ -62,11 +62,11 @@ before your users do. `base-devel` and `python` are there because
 Create a tap repository named `homebrew-openchat` under your account, then:
 
 ```bash
-curl -sL https://github.com/n3xtpy/Openchat/archive/refs/tags/v0.1.0.tar.gz | shasum -a 256
+curl -sL https://github.com/n3xtpy/Openchat/archive/refs/tags/v1.0.0.tar.gz | shasum -a 256
 # paste into packaging/openchat.rb, replacing REPLACE_WITH_RELEASE_CHECKSUM
 
 cp packaging/openchat.rb ../homebrew-openchat/Formula/openchat.rb
-cd ../homebrew-openchat && git commit -am 'openchat 0.1.0' && git push
+cd ../homebrew-openchat && git commit -am 'openchat 1.0.0' && git push
 ```
 
 Verify: `brew install --build-from-source n3xtpy/openchat/openchat`.

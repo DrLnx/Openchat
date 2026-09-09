@@ -20,7 +20,7 @@ import {
 } from '../../src/core/accounts.js'
 import { readConfig, profileDir } from '../../src/core/store.js'
 import { loadIdentity } from '../../src/core/identity.js'
-import { createTestDht, TEST_HOST, waitFor, sleep } from '../helpers.js'
+import { createTestDht, TEST_HOST, waitFor, pressUntil } from '../helpers.js'
 
 const ESC = String.fromCharCode(27)
 
@@ -86,18 +86,18 @@ test('an account will not be overwritten by accident', async (t) => {
   )
 })
 
-test('restoring brings the same identity onto a second account', async (t) => {
+test('every account is a key that has never existed before', async (t) => {
   await scratchHome(t)
 
-  const original = await createAccount({ profile: 'laptop', nick: 'ada' })
-  const restored = await createAccount({
-    profile: 'desktop',
-    nick: 'ada',
-    mnemonic: original.mnemonic
-  })
+  const laptop = await createAccount({ profile: 'laptop', nick: 'ada' })
+  const desktop = await createAccount({ profile: 'desktop', nick: 'ada' })
 
-  assert.equal(restored.publicKey, original.publicKey, 'same key, different machine')
-  assert.notEqual(restored.dir, original.dir)
+  // Two accounts with the same display name are still two strangers. There is
+  // no way to put an existing key into a new account — createAccount generates
+  // one and that is the only thing it does.
+  assert.notEqual(desktop.publicKey, laptop.publicKey, 'same name, different people')
+  assert.notEqual(desktop.mnemonic, laptop.mnemonic)
+  assert.notEqual(desktop.dir, laptop.dir)
 })
 
 test('the current account is remembered, and a free name can be suggested', async (t) => {
@@ -134,10 +134,17 @@ test('a second account can be made and switched into without leaving the app', a
   assert.match(screen(app), /ada@work/, 'the statusline says which account you are in')
 
   // Open the accounts float and start a new one from it.
-  app.stdin.write(ESC)
-  await sleep(120)
+  //
+  // Each key waits for the app to show that it landed rather than for a fixed
+  // number of milliseconds. The test stdin hands Ink one chunk at a time and
+  // drops it if a second arrives before Ink has read the first, so a chord
+  // typed against the clock is a chord that occasionally loses its first key
+  // and hangs here with nothing open.
+  await pressUntil(app, ESC, async () => screen(app).includes('NORMAL'), { message: 'normal mode' })
+
   app.stdin.write(' ')
-  await sleep(120)
+  await waitFor(async () => screen(app).includes('esc cancel'), { message: 'the key menu' })
+
   app.stdin.write('a')
   await waitFor(async () => screen(app).includes('each one is its own keypair'), {
     message: 'the accounts float'
@@ -146,13 +153,14 @@ test('a second account can be made and switched into without leaving the app', a
 
   app.stdin.write('n')
   await waitFor(async () => screen(app).includes('New account'), { message: 'the username prompt' })
+
   app.stdin.write('alias')
-  await sleep(120)
+  await waitFor(async () => screen(app).includes('alias'), { message: 'the username typed' })
   app.stdin.write('\r')
 
   await waitFor(async () => screen(app).includes('Display name'), { message: 'the name prompt' })
   app.stdin.write('nobody')
-  await sleep(120)
+  await waitFor(async () => screen(app).includes('nobody'), { message: 'the display name typed' })
   app.stdin.write('\r')
 
   // A new key means a new recovery phrase, and it has to be acknowledged.
@@ -161,11 +169,10 @@ test('a second account can be made and switched into without leaving the app', a
     timeout: 20000
   })
 
-  app.stdin.write('y')
-  await sleep(120)
-  app.stdin.write('\r')
-
-  await waitFor(async () => screen(app).includes('nobody@alias'), {
+  await pressUntil(app, 'y', async () => screen(app).includes('press enter to open openchat'), {
+    message: 'the phrase to be acknowledged'
+  })
+  await pressUntil(app, '\r', async () => screen(app).includes('nobody@alias'), {
     message: 'the new account to open',
     timeout: 30000
   })

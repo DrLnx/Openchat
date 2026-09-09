@@ -1,9 +1,11 @@
 // Tier 2 — local identity. One Ed25519 keypair per install, derived from a
 // 32-byte seed stored at ~/.openchat/identity.json with 0600 permissions.
 //
-// Only the seed is persisted; the keypair is re-derived on load. That makes the
-// backup story trivial — a BIP39 mnemonic of the seed restores the same
-// identity on another machine, and your messages keep the same author key.
+// Only the seed is persisted; the keypair is re-derived on load, and the seed
+// also reads out as a BIP39 mnemonic so it can be written down. Nothing in this
+// program reads a mnemonic back: a keypair is generated where it is used and
+// there is no path that installs one from somewhere else, so identity.json is
+// the only copy of an account there will ever be.
 
 import { readFile, writeFile, mkdir, chmod, rename } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
@@ -29,7 +31,7 @@ export class Identity {
     return b4a.toString(this.publicKey, 'hex')
   }
 
-  /** BIP39 mnemonic of the seed — the whole backup. */
+  /** BIP39 mnemonic of the seed — the seed in a form you can write down. */
   get mnemonic () {
     return bip39.entropyToMnemonic(b4a.toString(this.seed, 'hex'))
   }
@@ -76,15 +78,15 @@ export async function loadIdentity (opts = {}) {
 
   if (contents !== undefined) {
     // Never silently replace an identity: losing it means losing the ability to
-    // post as yourself, and no server can reissue it. Fail loudly and point at
-    // the recovery phrase instead.
+    // post as yourself, nothing can rebuild it, and no server can reissue it.
+    // Fail loudly rather than generating a new key over the top of it.
     let raw
     try {
       raw = JSON.parse(contents)
     } catch {
       throw new Error(
-        `${file} is not valid JSON. Do not delete it — if you have your recovery ` +
-        'phrase, move the file aside and run `openchat restore <phrase>`.'
+        `${file} is not valid JSON. Do not delete it — it is the only copy of ` +
+        'this account\'s key, and there is nothing anywhere that can rebuild it.'
       )
     }
 
@@ -92,7 +94,7 @@ export async function loadIdentity (opts = {}) {
       throw new Error(`identity file is v${raw.v}, this build expects v${IDENTITY_VERSION}`)
     }
     if (typeof raw.seed !== 'string' || !/^[0-9a-f]{64}$/i.test(raw.seed)) {
-      throw new Error(`${file} has no usable key. Restore with \`openchat restore <phrase>\`.`)
+      throw new Error(`${file} has no usable key, and no copy of it exists to put back.`)
     }
 
     return new Identity({ seed: b4a.from(raw.seed, 'hex'), nick: raw.nick })
@@ -113,17 +115,6 @@ export async function saveIdentity (identity, dir) {
   // writeFile only applies `mode` when it creates the file; re-assert it so an
   // identity written before this rule existed gets locked down too.
   await chmod(file, 0o600)
-  return identity
-}
-
-/** Restore an identity from a BIP39 mnemonic, overwriting the local one. */
-export async function restoreFromMnemonic (mnemonic, opts = {}) {
-  const normalized = mnemonic.trim().split(/\s+/).join(' ')
-  if (!bip39.validateMnemonic(normalized)) throw new Error('invalid recovery phrase')
-
-  const seed = b4a.from(bip39.mnemonicToEntropy(normalized), 'hex')
-  const identity = new Identity({ seed, nick: opts.nick })
-  await saveIdentity(identity, opts.dir)
   return identity
 }
 

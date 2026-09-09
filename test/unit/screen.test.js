@@ -9,6 +9,9 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import React from 'react'
+import { Box } from 'ink'
+import { render } from 'ink-testing-library'
 
 import { width, truncate, pad, fit, wrap } from '../../src/ui/model/text.js'
 import { chatRows, chatWindow, maxScroll, scrollToRow, bodyColumns } from '../../src/ui/ink/Chat.jsx'
@@ -205,4 +208,74 @@ test('the welcome pane is rows like everything else', () => {
 
   assert.ok(withLogo.length > without.length, 'the logo is rows you can turn off')
   assert.ok(without.length > 0, 'and what is left still tells you who you are')
+})
+
+/** The welcome pane as text, the way a terminal would show it. */
+function paint (options) {
+  const rows = welcomeRows({ theme, self, profile: 'work', version: '1.0.0', ...options })
+  const app = render(
+    React.createElement(
+      Box,
+      { flexDirection: 'column', width: options.columns + 2 },
+      rows
+    )
+  )
+  // eslint-disable-next-line no-control-regex
+  const text = (app.lastFrame() || '').replace(/\u001B\[[0-9;]*m/g, '')
+  return { rows, text, lines: text.split('\n') }
+}
+
+test('the welcome pane fills the height it is given, so it sits in the middle', () => {
+  // The transcript is anchored to the bottom of its pane, which is right for a
+  // conversation and wrong for this: left to it, the welcome sat on the floor
+  // of the screen with half a terminal of nothing above it. Handing back
+  // exactly as many rows as the pane has is what centres it.
+  for (const rows of [20, 26, 34, 44]) {
+    assert.equal(paint({ columns: 90, rows }).rows.length, rows, `${rows} rows`)
+  }
+
+  // A pane too short for the block is the one case it cannot fill; it hands
+  // back what it has and the pane drops from the front, logo first.
+  assert.ok(paint({ columns: 90, rows: 8 }).rows.length > 8)
+})
+
+test('the logo is as big as the pane can hold, and no bigger', () => {
+  const big = paint({ columns: 90, rows: 34 })
+  const small = paint({ columns: 50, rows: 34 })
+  const none = paint({ columns: 50, rows: 18 })
+
+  assert.match(big.text, /██████╗/, 'a wide, tall pane gets the block letters')
+  assert.doesNotMatch(small.text, /██████╗/)
+  assert.match(small.text, /█▀▀█/, 'a narrower one gets the half-block name')
+  assert.doesNotMatch(none.text, /█/, 'and a short one gets the wordmark')
+  assert.match(none.text, /openchat/)
+
+  // Whichever it drew, the pane still says who you are and what to press.
+  for (const { text } of [big, small, none]) {
+    assert.match(text, /ada/, 'your name')
+    assert.match(text, /␣ r n/, 'and the first thing to do with it')
+  }
+})
+
+test('the welcome pane is centred as a block, not row by row', () => {
+  const { lines } = paint({ columns: 90, rows: 34 })
+
+  // The block letters are measured out of it: several of them begin with a
+  // column of their own padding — ` ██████╗` — so where their ink starts is a
+  // property of the letter O and not of the layout.
+  const drawn = lines.filter((line) => line.trim() && !/[█╗╔╝╚═▀▄]/.test(line))
+
+  const indents = drawn.map((line) => line.length - line.trimStart().length)
+  assert.ok(indents.length > 8, 'there is something on the screen')
+
+  // One indent for everything: the card, the numbers and the key columns keep
+  // the edges they were laid out against. Centring each row on its own would
+  // leave nothing lining up with anything.
+  const left = Math.min(...indents)
+  assert.ok(left > 4, 'and the block is pushed off the left edge')
+  assert.equal(
+    indents.filter((at) => at === left).length,
+    indents.length,
+    'every row starts in the same column'
+  )
 })

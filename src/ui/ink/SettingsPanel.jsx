@@ -34,14 +34,14 @@ function rowsFor () {
   return rows
 }
 
-export function SettingsPanel ({ theme, terminal, values, profile, onChange, onCancel, backdrop }) {
+export function SettingsPanel ({ theme, screen, values, profile, onChange, onCancel, backdrop }) {
   const rows = useMemo(rowsFor, [])
   const [selected, setSelected] = useState(1)
   const [offset, setOffset] = useState(0)
 
   const layout = useMemo(
-    () => floatLayout(terminal, { items: rows.length, maxRows: 24, width: 72 }),
-    [terminal, rows.length]
+    () => floatLayout(screen, { items: rows.length, maxRows: 24, width: 72 }),
+    [screen, rows.length]
   )
 
   useEffect(() => {

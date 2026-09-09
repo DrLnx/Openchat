@@ -1,6 +1,10 @@
 // First run. There is no account to sign up for, so onboarding has exactly two
 // jobs: get a usable identity onto the machine, and make sure the recovery
 // phrase is seen before anyone depends on it.
+//
+// There is one path through it. A key is generated on the machine that uses it
+// and there is no way to bring one in from anywhere else, so nothing here asks
+// you to choose between creating and restoring.
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -11,12 +15,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import { Root } from '../../src/ui/ink/Root.jsx'
+import * as identityCore from '../../src/core/identity.js'
 import { hasIdentity, loadIdentity } from '../../src/core/identity.js'
-import { readConfig } from '../../src/core/store.js'
+import {
+  readConfig, currentProfile, listProfiles, profileDir, DEFAULT_PROFILE
+} from '../../src/core/store.js'
 import { createTestDht, TEST_HOST, waitFor, sleep } from '../helpers.js'
 
 const ESC = String.fromCharCode(27)
-const DOWN = `${ESC}[B`
 
 function screen (app) {
   // eslint-disable-next-line no-control-regex
@@ -30,10 +36,55 @@ async function type (app, line) {
   await sleep(120)
 }
 
+/**
+ * A machine with nothing on it, with the openchat home pointed at it.
+ *
+ * The other tests here hand Root a directory directly, which is the
+ * OPENCHAT_DIR case; this is the one a person actually gets, where the home
+ * holds the account database and the profile directory under it.
+ */
+async function freshHome (t) {
+  const home = await mkdtemp(path.join(tmpdir(), 'openchat-home-'))
+  const previousHome = process.env.OPENCHAT_HOME
+  const previousDir = process.env.OPENCHAT_DIR
+
+  process.env.OPENCHAT_HOME = home
+  delete process.env.OPENCHAT_DIR
+
+  t.after(async () => {
+    if (previousHome === undefined) delete process.env.OPENCHAT_HOME
+    else process.env.OPENCHAT_HOME = previousHome
+    if (previousDir !== undefined) process.env.OPENCHAT_DIR = previousDir
+    await rm(home, { recursive: true, force: true })
+  })
+
+  return home
+}
+
+/**
+ * A profile directory of its own, on a machine of its own.
+ *
+ * The home matters even when the test hands Root a directory directly: Root
+ * records which account this *machine* is in, and a test without a home of its
+ * own writes that into the real one — which is how a developer running the
+ * suite ends up with accounts on their laptop named after fixtures.
+ */
 async function freshProfile (t) {
+  await freshHome(t)
   const dir = await mkdtemp(path.join(tmpdir(), 'openchat-onboard-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   return dir
+}
+
+/**
+ * The screen as one line, for asserting on prose that has been wrapped.
+ *
+ * The card's own borders come out with it: a sentence that wraps inside a box
+ * has a `│` and two runs of padding in the middle of it, and none of that is
+ * anything the test is about.
+ */
+function prose (frame) {
+  return frame.replace(/[\u2500-\u257f]/g, ' ').replace(/\s+/g, ' ')
 }
 
 test('a new profile is walked through creating an identity', async (t) => {
@@ -58,12 +109,8 @@ test('a new profile is walked through creating an identity', async (t) => {
   assert.match(screen(app), /your identity is a keypair generated on this machine/, 'explains what an account is here')
   app.stdin.write('\r')
 
-  await waitFor(async () => screen(app).includes('Set up "work"'), { message: 'the first step' })
-  assert.match(screen(app), /Create a new identity/)
-  assert.match(screen(app), /Restore one from a recovery phrase/)
-
-  // Take the default choice, then name yourself.
-  app.stdin.write('\r')
+  // Straight to the name: there is no choice to make about where the key comes
+  // from, because there is only one place it can come from.
   await waitFor(async () => screen(app).includes('Pick a display name'), { message: 'the nick step' })
   await type(app, 'ada')
 
@@ -72,9 +119,11 @@ test('a new profile is walked through creating an identity', async (t) => {
     message: 'the recovery phrase'
   })
   const shown = screen(app)
-  assert.match(shown, /Anyone who has/, 'says what the phrase is worth')
-  assert.match(shown, /can post as you/, 'says what the phrase is worth')
-  assert.match(shown, /no server that can reset/, 'says nobody can recover it for you')
+  // The prose is wrapped to the card, so a sentence can be checked for but a
+  // line cannot: where it breaks is a property of the terminal, not of what it
+  // says.
+  assert.match(prose(shown), /Anyone who has them can post as you/, 'says what the phrase is worth')
+  assert.match(prose(shown), /no server that can reset this for you/, 'says nobody can recover it')
 
   const identity = await loadIdentity({ dir })
   const words = identity.mnemonic.split(' ')
@@ -101,54 +150,74 @@ test('a new profile is walked through creating an identity', async (t) => {
   assert.equal(config.onboarded, true)
 })
 
-test('an existing identity can be restored from its phrase', async (t) => {
+test('onboarding happens once, and the next launch opens what it made', async (t) => {
   const testnet = await createTestDht()
-  const original = await freshProfile(t)
-  const replacement = await freshProfile(t)
+  await freshHome(t)
   t.after(() => testnet.destroy())
 
-  // Make an identity to restore.
-  const first = render(React.createElement(Root, {
-    profile: 'first', dir: original, needsOnboarding: true, bootstrap: testnet.bootstrap, host: TEST_HOST
-  }))
-  await waitFor(async () => screen(first).includes('no server in the middle'), { message: 'welcome' })
-  first.stdin.write('\r')
-  await waitFor(async () => screen(first).includes('Set up'), { message: 'setup' })
-  first.stdin.write('\r')
-  await waitFor(async () => screen(first).includes('Pick a display name'), { message: 'nick' })
-  await type(first, 'ada')
-  await waitFor(async () => screen(first).includes('Write down your recovery phrase'), { message: 'phrase' })
-  const identity = await loadIdentity({ dir: original })
-  first.unmount()
+  // What the binary decides at startup, in one place, so the test asks the same
+  // question the entry point does rather than a paraphrase of it.
+  const wouldOnboard = async () => {
+    const profile = await currentProfile()
+    return { profile, onboarding: !(await hasIdentity(profileDir(profile))) }
+  }
 
-  // Restore it into a clean profile.
+  assert.deepEqual(
+    await wouldOnboard(),
+    { profile: DEFAULT_PROFILE, onboarding: true },
+    'a machine with nothing on it onboards'
+  )
+
   const app = render(React.createElement(Root, {
-    profile: 'restored', dir: replacement, needsOnboarding: true, bootstrap: testnet.bootstrap, host: TEST_HOST
+    profile: DEFAULT_PROFILE,
+    dir: profileDir(DEFAULT_PROFILE),
+    needsOnboarding: true,
+    bootstrap: testnet.bootstrap,
+    host: TEST_HOST
   }))
   t.after(() => app.unmount())
 
   await waitFor(async () => screen(app).includes('no server in the middle'), { message: 'welcome' })
   app.stdin.write('\r')
-  await waitFor(async () => screen(app).includes('Set up "restored"'), { message: 'setup' })
-  app.stdin.write(DOWN)
+  await waitFor(async () => screen(app).includes('Pick a display name'), { message: 'the nick step' })
+  await type(app, 'ada')
+  await waitFor(async () => screen(app).includes('Write down your recovery phrase'), {
+    message: 'the recovery phrase'
+  })
+  app.stdin.write('y')
   await sleep(80)
   app.stdin.write('\r')
-
-  await waitFor(async () => screen(app).includes('Restore from a recovery phrase'), {
-    message: 'the restore step'
-  })
-  await type(app, identity.mnemonic)
-
   await waitFor(async () => screen(app).includes('end-to-end encrypted'), {
     message: 'the app to start',
     timeout: 30000
   })
 
-  const restored = await loadIdentity({ dir: replacement })
-  assert.equal(restored.publicKeyHex, identity.publicKeyHex, 'same identity, different machine')
+  // The whole complaint this test exists for: doing it once has to be enough.
+  assert.deepEqual(
+    await wouldOnboard(),
+    { profile: DEFAULT_PROFILE, onboarding: false },
+    'and never again on this machine'
+  )
+
+  // And it made exactly one account, not a directory that merely looks like one.
+  assert.deepEqual(await listProfiles(), [DEFAULT_PROFILE])
+  assert.equal((await readConfig(profileDir(DEFAULT_PROFILE))).nick, 'ada')
 })
 
-test('a bad recovery phrase is rejected rather than silently accepted', async (t) => {
+/**
+ * What a copy key actually put on the clipboard.
+ *
+ * OSC 52 goes to the real process.stdout rather than to Ink's, because the
+ * clipboard belongs to the terminal and not to the frame — so that is where the
+ * test has to listen. See clipboard.js.
+ */
+function clipboard (chunks) {
+  const last = chunks.filter((chunk) => chunk.includes(`${ESC}]52;`)).pop()
+  if (!last) return null
+  return Buffer.from(last.match(/\]52;c;([A-Za-z0-9+/=]*)/)[1], 'base64').toString('utf8')
+}
+
+test('the two things on the phrase screen have a copy key each', async (t) => {
   const testnet = await createTestDht()
   const dir = await freshProfile(t)
   t.after(() => testnet.destroy())
@@ -160,15 +229,61 @@ test('a bad recovery phrase is rejected rather than silently accepted', async (t
 
   await waitFor(async () => screen(app).includes('no server in the middle'), { message: 'welcome' })
   app.stdin.write('\r')
-  await waitFor(async () => screen(app).includes('Set up "work"'), { message: 'setup' })
-  app.stdin.write(DOWN)
-  await sleep(80)
-  app.stdin.write('\r')
-  await waitFor(async () => screen(app).includes('Restore from a recovery phrase'), { message: 'restore' })
-
-  await type(app, 'these are definitely not the right words at all nope')
-  await waitFor(async () => screen(app).includes('invalid recovery phrase'), {
-    message: 'the error'
+  await waitFor(async () => screen(app).includes('Pick a display name'), { message: 'the nick step' })
+  await type(app, 'ada')
+  await waitFor(async () => screen(app).includes('Write down your recovery phrase'), {
+    message: 'the recovery phrase'
   })
-  assert.equal(await hasIdentity(dir), false, 'nothing was written')
+
+  const made = await loadIdentity({ dir })
+  const written = []
+  const real = process.stdout.write.bind(process.stdout)
+  process.stdout.write = (chunk) => { written.push(String(chunk)); return true }
+  t.after(() => { process.stdout.write = real })
+
+  // `c` is the one you can hit by accident, so it takes the harmless value.
+  app.stdin.write('c')
+  await sleep(120)
+  assert.equal(clipboard(written), made.publicKeyHex, 'c copies the public key')
+  assert.match(screen(app), /your public key copied/, 'and says which of the two it took')
+
+  // The phrase is behind shift, and it goes out whole — the point of copying it
+  // is that nobody retypes twenty-four words correctly.
+  written.length = 0
+  app.stdin.write('C')
+  await sleep(120)
+  assert.equal(clipboard(written), made.mnemonic, 'shift-c copies all 24 words')
+  assert.match(screen(app), /all 24 words copied/)
+
+  process.stdout.write = real
+})
+
+test('there is no way to bring an identity in from somewhere else', async (t) => {
+  const testnet = await createTestDht()
+  const dir = await freshProfile(t)
+  t.after(() => testnet.destroy())
+
+  // The mechanism is gone, not just the screen that used to reach it. A key is
+  // generated where it is used, and nothing in the program reads a mnemonic
+  // back — so identity.json is the only copy of an account there will be.
+  assert.equal(identityCore.restoreFromMnemonic, undefined, 'no restore in the core either')
+
+  const app = render(React.createElement(Root, {
+    profile: 'work', dir, needsOnboarding: true, bootstrap: testnet.bootstrap, host: TEST_HOST
+  }))
+  t.after(() => app.unmount())
+
+  await waitFor(async () => screen(app).includes('no server in the middle'), { message: 'welcome' })
+  app.stdin.write('\r')
+  await waitFor(async () => screen(app).includes('Pick a display name'), { message: 'the nick step' })
+
+  assert.doesNotMatch(screen(app), /[Rr]estore/, 'nothing offers to restore one')
+
+  await type(app, 'ada')
+  await waitFor(async () => screen(app).includes('Write down your recovery phrase'), {
+    message: 'the recovery phrase'
+  })
+
+  const made = await loadIdentity({ dir })
+  assert.equal(made.mnemonic.split(' ').length, 24, 'the key it made is the key you keep')
 })

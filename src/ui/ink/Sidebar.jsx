@@ -6,6 +6,13 @@
 // to directly, each with its unread count — and nothing else, because a
 // sidebar that grows features is a sidebar that grows columns.
 //
+// Three states share this pane and all three have to be legible at a glance,
+// which is what the two marker columns on the left are for. A rule under a
+// section heading groups the list; a solid bar marks the conversation you are
+// *in*; a caret marks the row the cursor is on while the list has the keyboard.
+// The last two are different things — where you are and where you are about to
+// go — and a list that draws them the same way is a list you get lost in.
+//
 // Like the chat pane it hands back one element per screen row, so a click can
 // be turned back into a conversation by ui/model/layout.js.
 
@@ -40,15 +47,20 @@ export function sidebarRows ({
   const rooms = conversations.filter((c) => c.kind !== 'dm')
   const direct = conversations.filter((c) => c.kind === 'dm')
 
+  // A heading with a rule running off it to the right edge. The rule is what
+  // makes two lists read as two lists rather than as one list with a word in
+  // the middle of it, and it costs nothing but the columns nothing else wanted.
   const section = (label) => {
     if (rows.length > 0) {
       rows.push(<Text key={`gap-${rows.length}`}> </Text>)
       targets.push(null)
     }
+    const rule = Math.max(0, inner - 3 - label.length)
     rows.push(
       <Text key={`s-${label}`} wrap='truncate-end'>
         <Text>{' '}</Text>
         <Text color={dye(theme.dim)} bold={!muted}>{label}</Text>
+        <Text color={theme.subtle}>{` ${'─'.repeat(rule)}`}</Text>
       </Text>
     )
     targets.push(null)
@@ -64,8 +76,10 @@ export function sidebarRows ({
     const flag = conversation.closed ? icons.closed : conversation.owned ? icons.owner : ''
 
     // The name is cut to whatever the badge and the flag leave behind, so a
-    // long room name can never push the count off the edge of the pane.
-    const room = inner - 2 - (badge ? width(badge) + 1 : 0) - (flag ? width(flag) + 1 : 0)
+    // long room name can never push the count off the edge of the pane — and
+    // there is always a column of air between the two, or a name that happens
+    // to fill the pane exactly runs straight into its own unread count.
+    const room = inner - 2 - (badge ? width(badge) + 2 : 0) - (flag ? width(flag) + 2 : 0)
     const label = truncate(`${conversation.kind === 'dm' ? icons.dm : icons.room}${conversation.name}`, Math.max(3, room))
 
     rows.push(
@@ -76,9 +90,9 @@ export function sidebarRows ({
       >
         <Text color={cursor ? dye(theme.accent2) : active ? dye(theme.accent) : theme.subtle}>
           {/* The cursor takes the caret while the list has the keyboard, so the
-              conversation you are *in* steps aside to a quieter mark rather
+              conversation you are *in* steps aside to the solid bar rather
               than competing with the one you are about to open. */}
-          {cursor ? `${icons.selected} ` : active ? (focused ? `${icons.edge} ` : `${icons.selected} `) : '  '}
+          {cursor ? `${icons.selected} ` : active ? `${icons.edge} ` : '  '}
         </Text>
         <Text
           color={cursor ? dye(theme.fg) : active ? dye(theme.accent) : unread ? dye(theme.fg) : dye(theme.dim)}
@@ -102,12 +116,20 @@ export function sidebarRows ({
     direct.forEach(item)
   }
 
+  // An empty list is the first thing a new account sees, so it says what to
+  // press rather than sitting there being empty. Three chords, which between
+  // them are every way there is to start a conversation.
   if (rows.length === 0) {
-    for (const line of ['no rooms yet', '', '␣ r n  new room', '␣ f d  message', '␣ r j  join']) {
+    rows.push(<Text key='e-head' wrap='truncate-end'><Text> </Text><Text color={dye(theme.dim)} bold={!muted}>NOTHING YET</Text></Text>)
+    targets.push(null)
+    rows.push(<Text key='e-gap'> </Text>)
+    targets.push(null)
+
+    for (const [keys, label] of [['␣ r n', 'new room'], ['␣ f d', 'message'], ['␣ r j', 'join']]) {
       rows.push(
         <Text key={`e-${rows.length}`} wrap='truncate-end'>
-          <Text> </Text>
-          <Text color={theme.subtle}>{truncate(line, inner - 1)}</Text>
+          <Text color={dye(theme.accent)}>{` ${keys}`}</Text>
+          <Text color={theme.subtle}>{`  ${truncate(label, Math.max(1, inner - 9))}`}</Text>
         </Text>
       )
       targets.push(null)

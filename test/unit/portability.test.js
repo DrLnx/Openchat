@@ -1,7 +1,9 @@
-// The browser harness only works because tier 1 stays free of Node-only and
-// native dependencies. That is easy to break by accident — one `import fs` in a
-// protocol module and the web bundle dies at build time with a confusing error.
-// Catch it here instead, where the message says what actually went wrong.
+// Tier 1 is the part of openchat you can read, test and reason about without a
+// DHT, a swarm or a terminal: the wire format, the ordering rule, the
+// view-model, the keymap. That property only holds while it stays free of Node
+// builtins, native modules and anything from the runtime tier, and one absent
+// `import fs` is easy to lose track of. So it is a test rather than a
+// convention, and the failure says exactly which import broke it.
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -11,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
-// Pure-JS packages that work identically in both runtimes.
+// Pure-JS packages with no native code and no Node builtins behind them.
 const ALLOWED_PACKAGES = new Set([
   'b4a',
   'compact-encoding',
@@ -38,7 +40,7 @@ async function jsFiles (dir) {
   return out
 }
 
-test('tier-1 modules import nothing that cannot run in a browser', async () => {
+test('tier-1 modules import nothing from the runtime tier', async () => {
   const offenders = []
 
   for (const dir of TIER_ONE_DIRS) {
@@ -54,7 +56,7 @@ test('tier-1 modules import nothing that cannot run in a browser', async () => {
           continue
         }
         const pkg = packageName(specifier)
-        if (!ALLOWED_PACKAGES.has(pkg)) offenders.push(`${rel} -> ${specifier} (not browser-safe)`)
+        if (!ALLOWED_PACKAGES.has(pkg)) offenders.push(`${rel} -> ${specifier} (not a portable package)`)
       }
     }
   }

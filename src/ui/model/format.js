@@ -7,7 +7,7 @@
  * One function, because the prefix used to be decided in two places — the
  * theme, for the chrome, and a hardcoded `#` in every notice — and the two
  * could disagree. They did: with Nerd Font icons switched on, the chrome drew a
- * glyph most terminals render as nothing, while `/new` and `/rooms` went on
+ * glyph most terminals render as nothing, while `:new` and `:rooms` went on
  * printing a literal `#`. The same room had two names depending on where you
  * were looking at it.
  *
@@ -99,7 +99,7 @@ export function describeAttachment (message, attachment) {
     case 'failed':
       return `${message.name} (${size}) — failed: ${attachment.error || 'unknown error'}`
     default:
-      return `${message.name} (${size}) — /download ${message.id.slice(0, 6)}`
+      return `${message.name} (${size}) — :download ${message.id.slice(0, 6)}`
   }
 }
 

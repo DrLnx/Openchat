@@ -5,12 +5,12 @@
 #   git clone ssh://aur@aur.archlinux.org/openchat.git aur-openchat
 #   cp packaging/PKGBUILD aur-openchat/
 #   cd aur-openchat && makepkg --printsrcinfo > .SRCINFO
-#   git add PKGBUILD .SRCINFO && git commit -m 'openchat 0.1.0' && git push
+#   git add PKGBUILD .SRCINFO && git commit -m 'openchat 1.0.0' && git push
 #
 # Test it locally first with `makepkg -si` from a copy of this directory.
 
 pkgname=openchat
-pkgver=0.1.0
+pkgver=1.0.0
 pkgrel=1
 pkgdesc='Serverless, end-to-end encrypted group chat and DMs for your terminal, over a P2P DHT'
 arch=('x86_64' 'aarch64')

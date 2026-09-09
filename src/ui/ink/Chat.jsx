@@ -25,21 +25,34 @@
 // A rule with the date on it goes in wherever the day changes. It is the only
 // thing in the pane that is not a message, and it is there because a clock
 // alone cannot tell you whether "09:12" was this morning or last Thursday.
+//
+// Nothing openchat has to say for itself is drawn here — no command output, no
+// errors, no acknowledgements. Those go above the prompt and then go away. This
+// pane is the conversation, and a pane that mixes the two is one you stop
+// reading as the conversation.
 
 import React from 'react'
 import { Text } from 'ink'
 
-import { wrap, fit, truncate } from '../model/text.js'
+import { wrap, fit, truncate, width as visibleWidth } from '../model/text.js'
 import {
   displayName, formatBytes, formatTime, formatDay, sameDay,
   formatSystemEvent, formatNickChange
 } from '../model/format.js'
 
-/** Columns for the clock, the marker, the name and the margin rule. */
+/** Columns for the clock, the speaker, and the margin rule. */
 const TIME_COLUMNS = 6
 const MARK_COLUMNS = 2
 const NAME_COLUMNS = 10
 const RULE_COLUMNS = 2
+
+/** The marker and the name, laid out as one right-aligned field. */
+const SPEAKER_COLUMNS = MARK_COLUMNS + NAME_COLUMNS - 1
+
+/** Blank columns before a speaker, so it ends where every other one does. */
+function speakerPad (speaker) {
+  return Math.max(0, SPEAKER_COLUMNS - visibleWidth(truncate(speaker, SPEAKER_COLUMNS)))
+}
 
 /** Below this much room for the text, names go on their own line instead. */
 const NARROW_BODY = 24
@@ -95,9 +108,9 @@ export function chatRows ({
   let lastTs = 0
   let lastDay = null
 
-  // Detail lines — notices, joins, renames — start where a message body starts,
-  // so the pane has one text column rather than two. The mark that says what
-  // kind of line it is goes in the two columns before it.
+  // Detail lines — joins, renames, what happened to an attachment — start where
+  // a message body starts, so the pane has one text column rather than two. The
+  // mark that says what kind of line it is goes in the two columns before it.
   const indent = narrow ? 0 : gutter - 2
   const detail = (lines, color, mark) => addDetail(rows, lines, color, theme, indent, mark)
 
@@ -109,16 +122,6 @@ export function chatRows ({
       rows.push(dayRule(entry.ts, usable, theme, muted, rows.length))
     }
     lastDay = entry.ts
-
-    if (entry.kind === 'notice') {
-      lastAuthor = null
-      detail(
-        wrapDetail(String(entry.notice.text), usable, indent),
-        noticeColor(entry.notice, theme, muted),
-        noticeMark(entry.notice, theme)
-      )
-      continue
-    }
 
     const message = entry.message
 
@@ -140,7 +143,7 @@ export function chatRows ({
     const mentioned = !isSelf && mentions(message, self)
 
     // A run of messages from one person is one block: header once, then the
-    // lines under it. Anything else in between — a notice, someone else
+    // lines under it. Anything else in between — a join, someone else
     // speaking — ends the run.
     const grouped = message.author === lastAuthor && message.ts - lastTs < GROUP_WINDOW_MS
     if (!grouped && rows.length > 0 && !settings.compact) blank()
@@ -159,6 +162,18 @@ export function chatRows ({
       ? dye(theme.cyan)
       : mentioned ? dye(theme.fg) : undefined
 
+    // Marker and name are one thing — `● grace`, `› you` — so that they can be
+    // laid against the rule as a unit.
+    const speaker = `${isSelf ? icons.self : icons.incoming} ${isSelf ? 'you' : name}`
+
+    // The rule down the left of a block, in the speaker's own colour, drawn on
+    // every row of it rather than only on the ones that wrapped. A block of
+    // text with nothing to its left floats in the middle of the pane and gives
+    // the eye nothing to come back to at the start of each line; a continuous
+    // coloured edge gives it that, tells you whose block you are still inside
+    // of three lines down, and costs one column.
+    const rail = isSelf ? dye(theme.mode.insert) : author
+
     const lines = wrap(text, columns)
 
     if (narrow) {
@@ -176,8 +191,8 @@ export function chatRows ({
       lines.forEach((line, i) => {
         add(
           <Text key={`b:${entry.key}:${rows.length}`} wrap='truncate-end'>
-            <Text color={mentioned ? dye(theme.orange) : theme.subtle}>
-              {mentioned ? `${icons.edge} ` : i === 0 ? '  ' : `${icons.bar} `}
+            <Text color={mentioned ? dye(theme.orange) : rail}>
+              {mentioned ? `${icons.edge} ` : `${icons.bar} `}
             </Text>
             <Text color={bodyColor}>{line}</Text>
           </Text>
@@ -203,18 +218,22 @@ export function chatRows ({
                 </Text>
                 )
               : ''}
-            <Text color={isSelf ? dye(theme.mode.insert) : author}>
-              {head ? `${isSelf ? icons.self : icons.incoming} ` : '  '}
-            </Text>
+            {/* The speaker sits against the rule rather than against the
+                clock. Left-aligned, every name ended at a different column and
+                the rule was a ragged distance from all of them; right-aligned,
+                the names and the rule each have an edge of their own and the
+                eye has two straight lines to read between. */}
+            <Text>{' '.repeat(speakerPad(head ? speaker : ''))}</Text>
             <Text color={isSelf ? dye(theme.mode.insert) : author} bold={head && !muted}>
-              {fit(head ? (isSelf ? 'you' : name) : '', NAME_COLUMNS)}
+              {head ? truncate(speaker, SPEAKER_COLUMNS) : ''}
             </Text>
-            {/* A line that says your name gets a solid bar down its whole
-                left edge rather than one mark on its first row: what you want
-                to find when you come back to a room is the block, and a block
-                is only visible if it is marked all the way down. */}
-            <Text color={mentioned ? dye(theme.orange) : theme.subtle}>
-              {mentioned ? `${icons.edge} ` : head ? '  ' : `${icons.bar} `}
+            <Text>{' '}</Text>
+            {/* A line that says your name gets a solid bar rather than the
+                thin rule: what you want to find when you come back to a room
+                is the block, and a block is only visible if it is marked all
+                the way down. */}
+            <Text color={mentioned ? dye(theme.orange) : rail}>
+              {mentioned ? `${icons.edge} ` : `${icons.bar} `}
             </Text>
             <Text color={bodyColor}>{line}</Text>
           </Text>
@@ -300,26 +319,13 @@ function dayRule (ts, usable, theme, muted, key) {
 
 function wrapDetail (text, usable, indent = 2) {
   const columns = Math.max(8, usable - indent - 2)
-  // Command output arrives pre-formatted — /help lines things up in columns —
+  // Command output arrives pre-formatted — :help lines things up in columns —
   // so its own newlines are kept and only over-long lines are wrapped.
   const out = []
   for (const line of String(text ?? '').split('\n')) {
     for (const wrapped of wrap(line, columns)) out.push(wrapped)
   }
   return out
-}
-
-function noticeMark (notice, theme) {
-  if (notice.level === 'error') return theme.icons.error
-  if (notice.level === 'warn') return theme.icons.warn
-  return theme.icons.detail
-}
-
-function noticeColor (notice, theme, muted) {
-  if (muted) return theme.subtle
-  if (notice.level === 'error') return theme.red
-  if (notice.level === 'warn') return theme.yellow
-  return theme.dim
 }
 
 /** One row saying what happened to an attachment. */
@@ -356,7 +362,7 @@ function attachmentLine (message, attachment, theme, muted, usable) {
   return (
     <Text color={dye(theme.dim)}>
       {status === 'available' ? 'over the auto-download limit — ' : 'not downloaded — '}
-      <Text color={dye(theme.accent)}>/download {message.id.slice(0, 6)}</Text>
+      <Text color={dye(theme.accent)}>:download {message.id.slice(0, 6)}</Text>
     </Text>
   )
 }

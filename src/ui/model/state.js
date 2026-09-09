@@ -1,9 +1,14 @@
 // Tier 1 — portable chat view-model.
 //
-// A plain reducer over plain data. The Ink app and the browser harness both
-// drive this and both render from it, so a bug in unread counts or member
-// tracking shows up in the browser demo exactly as it does in the terminal —
-// which is the point of having a demo at all.
+// A plain reducer over plain data: unread counts, member tracking, the
+// transcript. Keeping it out of the components is what makes any of it testable
+// — none of these tests need a terminal, a room or a network.
+//
+// The transcript holds messages and nothing else. Anything this client wants to
+// say for itself — a command's answer, an error, an acknowledgement — is said
+// above the prompt and then taken back down; see the note on `flash` in
+// ui/ink/App.jsx. A log that mixes what people said with what the program said
+// is a log you stop trusting to be the conversation.
 //
 // Ordering of the transcript is delegated to protocol/order.js, the same
 // function the CLI applies to Autobase's linearized view.
@@ -16,13 +21,11 @@ export function initialState (self = null) {
     room: null, // { key, name }
     rooms: [], // [{ key, name, unread }]
     messages: [], // ordered by protocol/order.js
-    notices: [], // local-only lines: errors, help output, command results
     // You are a member of your own room before you have said anything, so seed
     // yourself — otherwise the member list is empty until you first speak.
     members: self ? { [self.publicKey]: { nick: self.nick, status: 'online' } } : {},
     attachments: {}, // message id -> { status, progress, path, error }
-    connection: { state: 'offline', peers: 0 },
-    lastError: null
+    connection: { state: 'offline', peers: 0 }
   }
 }
 
@@ -124,21 +127,6 @@ export function reduce (state, action) {
         }
       }
 
-    case 'notice':
-      return {
-        ...state,
-        notices: [...state.notices, {
-          id: action.id || `notice-${state.notices.length}-${action.ts || Date.now()}`,
-          level: action.level || 'info',
-          text: action.text,
-          ts: action.ts || Date.now()
-        }].slice(-200),
-        lastError: action.level === 'error' ? action.text : state.lastError
-      }
-
-    case 'clear-notices':
-      return { ...state, notices: [] }
-
     default:
       return state
   }
@@ -150,9 +138,10 @@ export function clockFor (state) {
 }
 
 /**
- * The transcript as rendered: real messages plus local notices, interleaved by
- * time. Notices are deliberately not part of `messages` — they are local to
- * this client and must never reach the wire or affect ordering.
+ * The transcript as rendered, oldest first.
+ *
+ * Only messages: what people said, what the room did, who renamed themselves.
+ * Nothing this client has to say for itself ever appears here.
  */
 export function transcript (state) {
   // Names as they were at each point in the log, not as they are now: a rename
@@ -160,7 +149,7 @@ export function transcript (state) {
   // only knows the latest. Walking the ordered messages is the only way to get
   // that right for a line scrolled back to hours later.
   const nameAt = new Map()
-  const messages = []
+  const entries = []
 
   for (const m of state.messages) {
     if (m.type === 'presence') continue // presence drives the sidebar, not the log
@@ -169,14 +158,10 @@ export function transcript (state) {
       entry.previousName = nameAt.get(m.author) || null
       nameAt.set(m.author, m.nick)
     }
-    messages.push(entry)
+    entries.push(entry)
   }
 
-  const lines = [
-    ...messages,
-    ...state.notices.map((n) => ({ kind: 'notice', key: n.id, ts: n.ts, notice: n }))
-  ]
-  return lines.sort((a, b) => a.ts - b.ts || (a.kind === b.kind ? 0 : a.kind === 'notice' ? 1 : -1))
+  return entries
 }
 
 export function memberList (state) {

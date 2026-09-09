@@ -525,7 +525,7 @@ export class Room extends EventEmitter {
    * Resolve once we can post, or reject on timeout.
    *
    * A timeout of 0 waits indefinitely, which is what the app does after a
-   * `/join`: admission needs another member to be online, that is not something
+   * `:join`: admission needs another member to be online, that is not something
    * the joiner can hurry along, and a deadline would only turn "nobody is
    * around yet" into an error for something that is still going to happen.
    */

@@ -24,13 +24,13 @@ import { BINDINGS, describeChord } from '../model/keymap.js'
  * @param {string} [props.subtitle]  the fixed row above the rule
  */
 export function InfoFloat ({
-  theme, terminal, title, icon, subtitle, lines, footer, onCancel, onKey, width = 76, backdrop
+  theme, screen, title, icon, subtitle, lines, footer, onCancel, onKey, width = 76, backdrop
 }) {
   const [offset, setOffset] = useState(0)
 
   const layout = useMemo(
-    () => floatLayout(terminal, { items: lines.length, maxRows: 24, width }),
-    [terminal, lines.length, width]
+    () => floatLayout(screen, { items: lines.length, maxRows: 24, width }),
+    [screen, lines.length, width]
   )
 
   const scroll = useCallback((step) => {
@@ -94,7 +94,7 @@ export function InfoFloat ({
 }
 
 /** Every binding, grouped the way the keymap file groups them. */
-export function HelpFloat ({ theme, terminal, onCancel, backdrop }) {
+export function HelpFloat ({ theme, screen, onCancel, backdrop }) {
   const lines = useMemo(() => {
     const out = []
     const width = Math.max(...BINDINGS.map((b) => describeChord(b.keys).length)) + 2
@@ -121,8 +121,8 @@ export function HelpFloat ({ theme, terminal, onCancel, backdrop }) {
       ['C-a / C-e', 'start / end of line'],
       ['C-w', 'delete the word behind the cursor'],
       ['C-u', 'clear the line'],
-      ['/', 'start a slash command — the menu completes it'],
-      ['//', 'send a message that really does start with a slash']
+      ['C-k', 'the command line, without leaving the message'],
+      ['⇥', 'in the command line: complete what is highlighted']
     ]) {
       out.push({ text: `${keys.padEnd(width)}${desc}`, color: theme.dim, indent: 1 })
     }
@@ -133,10 +133,10 @@ export function HelpFloat ({ theme, terminal, onCancel, backdrop }) {
   return (
     <InfoFloat
       theme={theme}
-      terminal={terminal}
+      screen={screen}
       title='Keymap'
       icon={theme.icons.search}
-      subtitle='space is the leader key · every binding is also a slash command'
+      subtitle='space is the leader key · everything here is also a : command'
       lines={lines}
       onCancel={onCancel}
       backdrop={backdrop}
@@ -148,7 +148,7 @@ export function HelpFloat ({ theme, terminal, onCancel, backdrop }) {
  * Who you are: the key people reach you on, the account it belongs to, and —
  * only when you ask for it — the phrase that is the only way back to it.
  */
-export function IdentityFloat ({ theme, terminal, identity, profile, revealed, onCancel, onCopy, backdrop }) {
+export function IdentityFloat ({ theme, screen, identity, profile, revealed, onCancel, onCopy, backdrop }) {
   const fields = useMemo(() => [
     {
       label: 'Display name',
@@ -182,7 +182,7 @@ export function IdentityFloat ({ theme, terminal, identity, profile, revealed, o
   return (
     <KeyFloat
       theme={theme}
-      terminal={terminal}
+      screen={screen}
       title='Your keys'
       icon={theme.icons.key}
       subtitle='no server holds any of this — it is a keypair in a file on this machine'
@@ -202,7 +202,7 @@ export function IdentityFloat ({ theme, terminal, identity, profile, revealed, o
  * and the key that decrypts the room, in a string short enough to send someone
  * and long enough that nobody types it twice.
  */
-export function InviteFloat ({ theme, terminal, room, onCancel, onCopy, backdrop }) {
+export function InviteFloat ({ theme, screen, room, onCancel, onCopy, backdrop }) {
   const fields = useMemo(() => [
     {
       label: 'Invite string',
@@ -218,7 +218,7 @@ export function InviteFloat ({ theme, terminal, room, onCancel, onCopy, backdrop
   return (
     <KeyFloat
       theme={theme}
-      terminal={terminal}
+      screen={screen}
       title={`Invite to #${room.name}`}
       icon={theme.icons.key}
       subtitle={room.closed

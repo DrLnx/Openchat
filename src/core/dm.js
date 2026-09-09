@@ -117,14 +117,21 @@ export class DirectChannel extends EventEmitter {
    * @param {import('corestore')} opts.store
    * @param {import('./identity.js').Identity} opts.identity
    * @param {string} opts.peerKey   their Ed25519 public key, hex
-   * @param {string} [opts.peerName]
+   * @param {string} [opts.peerName]      a local label — a contact name you chose
+   * @param {string} [opts.announcedName] the last name they called themselves
    * @param {string} [opts.peerOutbox]  their outbox core key, if already known
    */
-  constructor ({ store, identity, peerKey, peerName = null, peerOutbox = null }) {
+  constructor ({ store, identity, peerKey, peerName = null, announcedName = null, peerOutbox = null }) {
     super()
     this.identity = identity
     this.peerKey = peerKey.toLowerCase()
+    // Two different things, and the difference is who said it. `peerName` is
+    // what *you* call them — a contact name, which you chose and which nothing
+    // arriving over the wire may overwrite. `announcedName` is what they call
+    // themselves, which is the only name a conversation opened from a bare
+    // public key has any hope of showing.
     this.peerName = peerName
+    this.announcedName = announcedName
     this.closed = false
 
     const derived = deriveChannel(identity.seed, identity.publicKey, b4a.from(this.peerKey, 'hex'))
@@ -150,8 +157,17 @@ export class DirectChannel extends EventEmitter {
     return `dm:${this.peerKey}`
   }
 
+  /**
+   * What to call this conversation.
+   *
+   * A DM is opened by pasting a public key, so without this it is called
+   * `@98642e95` — and stays called that, in the conversation list, the title
+   * bar and the prompt, for as long as it exists. Their nick arrives in the
+   * first seconds of the conversation and is the answer to "who is this";
+   * ignoring it made a working DM look like a broken one.
+   */
   get name () {
-    return this.peerName || this.peerKey.slice(0, 8)
+    return this.peerName || this.announcedName || this.peerKey.slice(0, 8)
   }
 
   get messages () {
@@ -326,8 +342,26 @@ export class DirectChannel extends EventEmitter {
 
     if (added.length) {
       this._messages = linearize([...this._messages, ...added])
+      this._learnPeerName(added)
       this.emit('messages', added)
     }
+  }
+
+  /**
+   * Take their name from the transcript, the way the member list in a room does.
+   *
+   * Runs over stored blocks as well as live ones, so a conversation reopened
+   * from disk is named before anyone is even online.
+   */
+  _learnPeerName (messages) {
+    let announced = null
+    for (const m of messages) {
+      if (m.type === 'nick' && m.author === this.peerKey && m.nick) announced = m.nick
+    }
+
+    if (!announced || announced === this.announcedName) return
+    this.announcedName = announced
+    this.emit('peer-name', announced)
   }
 
   async _readBlock (core, index) {

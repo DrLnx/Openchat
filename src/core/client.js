@@ -53,6 +53,14 @@ export class Client extends EventEmitter {
     this.identity = await loadIdentity({ dir: this.dir })
     this.config = await readConfig(this.dir)
 
+    // Opening an account is what registers it. Until this point a profile is a
+    // directory somebody named — it may have been made by a command that then
+    // failed, or by a typo — and the account database is deliberately the list
+    // of accounts that exist rather than the list of directories that do. A
+    // client that gets this far has a key and a store, so it is one, and the
+    // write is idempotent for every start after the first.
+    await writeConfig(this.config, this.dir)
+
     // A derived, disposable view over the logs: search, and how far you had
     // read. Deleting it costs nothing — see core/index-db.js.
     this.index = openIndex(this.dir)
@@ -122,7 +130,12 @@ export class Client extends EventEmitter {
               hello?.send(channel.outbox.key)
 
               await rememberDm(
-                { key: peerKey, name: channel.peerName, outbox: channel.outboxKey },
+                {
+                  key: peerKey,
+                  name: channel.peerName,
+                  announced: channel.announcedName,
+                  outbox: channel.outboxKey
+                },
                 this.dir
               ).catch(() => {})
               this.config = await readConfig(this.dir)
@@ -243,7 +256,11 @@ export class Client extends EventEmitter {
 
     for (const entry of this.config.dms) {
       try {
-        await this._adoptDm(entry.key, { name: entry.name, outbox: entry.outbox })
+        await this._adoptDm(entry.key, {
+          name: entry.name,
+          announced: entry.announced,
+          outbox: entry.outbox
+        })
       } catch (err) {
         this.emit('notice', { level: 'error', text: `could not open DM with ${entry.key.slice(0, 8)}: ${err.message}` })
       }
@@ -326,11 +343,17 @@ export class Client extends EventEmitter {
     const contact = this.config.contacts.find((c) => c.key === peerKey)
 
     const channel = await this._adoptDm(peerKey, {
-      name: name || known?.name || contact?.name || null,
+      name: name || contact?.name || known?.name || null,
+      announced: known?.announced,
       outbox: known?.outbox
     })
 
-    await rememberDm({ key: peerKey, name: channel.peerName, outbox: channel.outboxKey }, this.dir)
+    await rememberDm({
+      key: peerKey,
+      name: channel.peerName,
+      announced: channel.announcedName,
+      outbox: channel.outboxKey
+    }, this.dir)
     this.config = await readConfig(this.dir)
     this._setActive(id)
     return channel
@@ -519,12 +542,13 @@ export class Client extends EventEmitter {
     return room
   }
 
-  async _adoptDm (peerKey, { name, outbox } = {}) {
+  async _adoptDm (peerKey, { name, announced, outbox } = {}) {
     const channel = new DirectChannel({
       store: this.store,
       identity: this.identity,
       peerKey,
       peerName: name,
+      announcedName: announced,
       peerOutbox: outbox
     })
     await channel.ready()
@@ -543,6 +567,16 @@ export class Client extends EventEmitter {
     })
     channel.on('peer-outbox', (key) => {
       rememberDm({ key: peerKey, outbox: key }, this.dir).catch(() => {})
+    })
+    // They said what they are called. Remember it, so the conversation is named
+    // the next time it is opened rather than only while they are online, and
+    // tell the UI — the name is in the conversation list, the title bar and the
+    // prompt, none of which are redrawn by a message arriving.
+    channel.on('peer-name', (announced) => {
+      rememberDm({ key: peerKey, announced }, this.dir)
+        .then(async () => { this.config = await readConfig(this.dir) })
+        .catch(() => {})
+      this.emit('conversations')
     })
     channel.on('error', (err) => this.emit('notice', { level: 'error', text: err.message }))
 
@@ -643,7 +677,7 @@ export class Client extends EventEmitter {
 
   _requireTarget () {
     const active = this.active
-    if (!active) throw new Error('nothing open — try /join <invite>, /dm <key>, or create a room')
+    if (!active) throw new Error('nothing open — try :join <invite>, :dm <key>, or :new <name>')
 
     if (active.kind === 'room') {
       if (!active.room.writable) throw new Error('waiting to be admitted to this room')

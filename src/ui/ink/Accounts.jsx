@@ -19,7 +19,6 @@ import { useMouse, useMouseCapture } from './mouse.js'
 const FOOTER = [
   { keys: '⏎', label: 'switch' },
   { keys: 'n', label: 'new' },
-  { keys: 'r', label: 'restore' },
   { keys: 'esc', label: 'close' }
 ]
 
@@ -28,16 +27,15 @@ const FOOTER = [
  * @param {import('../../core/accounts.js').Account[]} props.accounts
  * @param {(profile: string) => void} props.onSwitch
  * @param {() => void} props.onCreate
- * @param {() => void} props.onRestore
  * @param {() => void} props.onCancel
  */
-export function Accounts ({ theme, terminal, accounts, showKeys, onSwitch, onCreate, onRestore, onCancel, backdrop }) {
+export function Accounts ({ theme, screen, accounts, showKeys, onSwitch, onCreate, onCancel, backdrop }) {
   const [selected, setSelected] = useState(0)
   const [offset, setOffset] = useState(0)
 
   const layout = useMemo(
-    () => floatLayout(terminal, { items: Math.max(accounts.length, 1), maxRows: 18, width: 74 }),
-    [terminal, accounts.length]
+    () => floatLayout(screen, { items: Math.max(accounts.length, 1), maxRows: 18, width: 74 }),
+    [screen, accounts.length]
   )
 
   const move = useCallback((step) => {
@@ -62,7 +60,6 @@ export function Accounts ({ theme, terminal, accounts, showKeys, onSwitch, onCre
     if (key.downArrow || input === 'j') return move(1)
     if (key.upArrow || input === 'k') return move(-1)
     if (input === 'n') return onCreate()
-    if (input === 'r') return onRestore()
   })
 
   useMouseCapture(true)

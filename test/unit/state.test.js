@@ -1,6 +1,6 @@
-// The chat view-model. Both front ends render from this, so a mistake here
-// shows up identically in the terminal and in the browser harness — which is
-// the point of it being one reducer rather than two.
+// The chat view-model. Everything on screen is derived from this one reducer,
+// so unread counts, member tracking and transcript ordering can be tested here
+// without rendering anything.
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -70,19 +70,26 @@ test('unread counts survive the conversation list being re-read', () => {
   assert.equal(totalUnread(state), 0, 'opening it does')
 })
 
-test('notices are interleaved with messages by time but never reach the wire', () => {
-  let state = reduce(initialState(self), {
-    type: 'room',
-    room: { key: 'r1', name: 'one', kind: 'room' },
-    messages: [{ id: 'm1', ...text({ id: 'm1', ts: 1000, body: 'first' }) }]
-  })
-
-  state = reduce(state, { type: 'notice', text: 'saved', ts: 1500 })
+test('the transcript is messages and nothing else', () => {
+  // Anything openchat has to say for itself — a command's answer, an error, an
+  // acknowledgement — is said above the prompt and then taken back down. A log
+  // that mixes what people said with what the program said is a log you stop
+  // trusting to be the conversation.
+  let state = initialState(self)
   state = reduce(state, {
     type: 'messages',
-    messages: [{ id: 'm2', ...text({ id: 'm2', clock: 2, ts: 2000, body: 'later' }) }]
+    messages: [text({ id: 'a', ts: 1000, body: 'first' }), text({ id: 'b', ts: 2000, body: 'second' })]
   })
 
-  assert.deepEqual(transcript(state).map((e) => e.kind), ['message', 'notice', 'message'])
-  assert.equal(state.messages.length, 2, 'the notice is not a message')
+  assert.deepEqual(transcript(state).map((e) => e.kind), ['message', 'message'])
+  assert.deepEqual(transcript(state).map((e) => e.message.body), ['first', 'second'])
+  assert.equal('notices' in state, false, 'there is nowhere for one to be kept')
+
+  // Presence is how the sidebar knows who is about; it is not something anybody
+  // said, so it is not in the log either.
+  state = reduce(state, {
+    type: 'messages',
+    messages: [{ id: 'p', type: 'presence', author: BOB, status: 'online', ts: 3000, clock: 3 }]
+  })
+  assert.equal(transcript(state).length, 2)
 })

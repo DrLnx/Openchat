@@ -1,11 +1,10 @@
-// The load-bearing test for the browser harness's honesty.
+// The load-bearing test for the envelope's byte layout.
 //
-// The CLI seals envelopes with sodium + node:crypto; the browser seals them
-// with @noble + WebCrypto. If those two ever drift, the demo stops being a
-// model of the real client and becomes a lookalike. Node 22 has WebCrypto
-// built in, so both backends run here and each has to open what the other
-// sealed — plus a frozen vector, so a change that breaks *both* backends in
-// the same direction still fails.
+// One backend seals with sodium + node:crypto, the other with @noble +
+// WebCrypto. A format with a single implementation is a format nobody has
+// checked, so each backend here has to open what the other sealed — plus a
+// frozen vector, so a change that breaks *both* backends in the same direction
+// still fails. Node has WebCrypto built in, so both run in this process.
 
 import test from 'node:test'
 import assert from 'node:assert/strict'

@@ -18,14 +18,15 @@
 import React, { useEffect, useReducer, useCallback, useState, useMemo, useRef, useContext } from 'react'
 import { useInput, useWindowSize } from 'ink'
 
-import { welcomeRows } from './Banner.jsx'
+import { welcomeRows, emptyRows } from './Banner.jsx'
 import { Screen } from './Screen.jsx'
 import { Header } from './Header.jsx'
 import { chatRows, chatWindow, maxScroll, scrollToRow } from './Chat.jsx'
 import { sidebarRows } from './Sidebar.jsx'
 import { StatusLine } from './StatusLine.jsx'
-import { InputBar, CommandMenu, menuHeight } from './InputBar.jsx'
-import { WhichKey, whichKeyHeight } from './WhichKey.jsx'
+import { InputBar } from './InputBar.jsx'
+import { Cmdline, CMDLINE_ROWS } from './Cmdline.jsx'
+import { WhichKey } from './WhichKey.jsx'
 import { Picker, Prompt } from './Picker.jsx'
 import { SettingsPanel } from './SettingsPanel.jsx'
 import { Accounts } from './Accounts.jsx'
@@ -34,7 +35,7 @@ import { createTheme } from './theme.js'
 import { MouseContext, useMouse, useMouseCapture } from './mouse.js'
 import { screenLayout, hitSidebar } from '../model/layout.js'
 import { initialState, reduce, transcript } from '../model/state.js'
-import { parseInput, matchCommands, COMMANDS } from '../model/commands.js'
+import { parseInput, parseCommand, matchCommands } from '../model/commands.js'
 import { createBuffer, applyKey, setValue } from '../model/editor.js'
 import { bindingsFor, chordFor, createResolver, describeChord, BINDINGS } from '../model/keymap.js'
 import { read as readSettings, write as writeSetting, THEMES } from '../model/settings.js'
@@ -46,7 +47,16 @@ import { listAccounts } from '../../core/accounts.js'
 /** How far ctrl-u, ctrl-d and the wheel move the transcript, in rows. */
 const SCROLL_STEP = 3
 
-// Slash commands that open a window instead of writing into the conversation.
+/**
+ * How long a line above the prompt stays before it takes itself off.
+ *
+ * An acknowledgement is gone almost before you have read it, which is the
+ * point of one. A warning or an error is something you have to act on, and one
+ * that has already vanished by the time you look up is one that never happened.
+ */
+const FLASH_MS = { info: 2600, warn: 7000, error: 7000 }
+
+// Commands that open a window instead of writing into the conversation.
 //
 // Everything key-shaped is here. A public key, an invite and a recovery phrase
 // are things you copy, not things you read, and the transcript is the worst
@@ -58,6 +68,10 @@ const SCROLL_STEP = 3
 // column of public keys, and a finder is a better thing to do with a list than
 // a paragraph of output is.
 const UI_COMMANDS = {
+  // `:help` is the command line itself: it already lists every command with
+  // what it does, which is what a help command is for.
+  help: 'cmdline',
+  profiles: 'float:accounts',
   settings: 'float:settings',
   accounts: 'float:accounts',
   keys: 'float:help',
@@ -88,7 +102,12 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
 
   const [mode, setMode] = useState(settings.startInNormalMode ? 'normal' : 'insert')
   const [buffer, setBuffer] = useState(createBuffer)
-  const [menu, setMenu] = useState(0)
+  // The command line: null when closed, otherwise its own editor buffer —
+  // its own text, its own cursor, and its own history, kept apart from the
+  // message you may be halfway through writing.
+  const [cmdline, setCmdline] = useState(null)
+  const [cmdIndex, setCmdIndex] = useState(0)
+  const [flashed, setFlashed] = useState(null)
   const [overlay, setOverlay] = useState(null)
   const [pending, setPending] = useState([])
   const [whichKey, setWhichKey] = useState(false)
@@ -110,9 +129,24 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
   // rebuild every callback in the app.
   const pageRef = useRef(10)
 
-  const notice = useCallback((text, level = 'info') => {
-    dispatch({ type: 'notice', text, level })
+  // Everything openchat has to say for itself is said in one place: one line
+  // above the prompt, for a couple of seconds, and then taken back down.
+  //
+  // It used to go into the transcript. That was wrong in every direction: it is
+  // not part of the conversation, it outlived the moment it was about, it
+  // pushed real messages up the screen, and pressing a key three times left
+  // three identical lines interleaved with what people had actually said. The
+  // transcript is the conversation. This is the program talking, and the
+  // program talks above the prompt.
+  //
+  // Anything too big for a line — a list of commands, of members, of accounts,
+  // a key — opens a window instead. Nothing is truncated into meaninglessness
+  // and nothing is left lying in the log.
+  const flash = useCallback((text, level = 'info') => {
+    setFlashed({ text, level, at: Date.now() })
   }, [])
+
+  const notice = flash
 
   // Pull whatever the client already knows into the view. Called on mount and
   // after any command that changes which room is active.
@@ -180,6 +214,10 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
 
     client.on('messages', onMessages)
     client.on('switched', onSwitched)
+    // A conversation renamed itself — someone said what they are called. The
+    // name is in three places on this screen and a message arriving redraws
+    // none of them.
+    client.on('conversations', onSwitched)
     client.on('connection', onConnection)
     client.on('attachment', onAttachment)
     client.on('notice', onNotice)
@@ -188,6 +226,7 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
     return () => {
       client.off('messages', onMessages)
       client.off('switched', onSwitched)
+      client.off('conversations', onSwitched)
       client.off('connection', onConnection)
       client.off('attachment', onAttachment)
       client.off('notice', onNotice)
@@ -213,42 +252,52 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
 
   // Some commands open a window rather than doing something to a room, and a
   // window is not something `commands/index.js` can reach — it has no UI. They
-  // are still real slash commands, so that everything reachable by a chord is
-  // also reachable by typing, which is what makes the keymap optional rather
-  // than mandatory.
+  // are still real commands, so that everything reachable by a chord is also
+  // reachable by typing, which is what makes the keymap optional rather than
+  // mandatory.
   const performRef = useRef(null)
 
+  /** Send what is in the message box. It is a message, whatever is in it. */
   const submit = useCallback(async (line) => {
     const parsed = parseInput(line)
     if (parsed.kind === 'empty') return
-    if (parsed.kind === 'error') return notice(parsed.message, 'error')
-
-    if (parsed.kind === 'command') {
-      if (parsed.name === 'theme') {
-        if (!THEMES.includes(parsed.arg)) {
-          return notice(`themes: ${THEMES.join(', ')}`, 'error')
-        }
-        return changeSetting('theme', parsed.arg)
-      }
-
-      const opens = UI_COMMANDS[parsed.name]
-      if (opens) return performRef.current?.(opens)
-    }
 
     setBusy(true)
     try {
-      if (parsed.kind === 'text') {
-        await client.sendText(parsed.body)
-      } else {
-        await runCommand(parsed, {
-          client,
-          notice,
-          refresh,
-          // Let the transcript settle before tearing the render down, so the
-          // goodbye is not swallowed mid-frame.
-          quit: () => setExiting(true)
-        })
+      await client.sendText(parsed.body)
+    } catch (err) {
+      notice(err.message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }, [client, notice])
+
+  /** Run a line from the command line. Takes `:dm ada` or `dm ada` alike. */
+  const run = useCallback(async (line) => {
+    const parsed = parseCommand(line)
+    if (parsed.kind === 'empty') return
+    if (parsed.kind === 'error') return notice(parsed.message, 'error')
+
+    if (parsed.name === 'theme') {
+      if (!THEMES.includes(parsed.arg)) {
+        return notice(`themes: ${THEMES.join(', ')}`, 'error')
       }
+      return changeSetting('theme', parsed.arg)
+    }
+
+    const opens = UI_COMMANDS[parsed.name]
+    if (opens) return performRef.current?.(opens)
+
+    setBusy(true)
+    try {
+      await runCommand(parsed, {
+        client,
+        notice,
+        refresh,
+        // Let the transcript settle before tearing the render down, so the
+        // goodbye is not swallowed mid-frame.
+        quit: () => setExiting(true)
+      })
     } catch (err) {
       notice(err.message, 'error')
     } finally {
@@ -334,13 +383,6 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
     data: row
   })), [client, state.members])
 
-  const commandItems = useMemo(() => COMMANDS.map((c) => ({
-    id: c.name,
-    label: `/${c.name}${c.args ? ' ' + c.args : ''}`,
-    hint: c.help,
-    data: c
-  })), [])
-
   const keymapItems = useMemo(() => BINDINGS.map((b, i) => ({
     id: `${b.keys}:${i}`,
     label: describeChord(b.keys),
@@ -391,12 +433,11 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
 
     switch (kind) {
       case 'mode':
-        if (name === 'command') {
-          setBuffer((b) => setValue(b, '/'))
-          setMode('insert')
-        } else {
-          setMode(name)
-        }
+        setMode(name)
+        return
+
+      case 'cmdline':
+        openCmdline()
         return
 
       case 'picker':
@@ -421,7 +462,7 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
         return
 
       case 'cmd':
-        submit(`/${name}`)
+        run(name)
         return
 
       case 'nav': {
@@ -483,16 +524,24 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
   }), [])
 
   const matches = useMemo(
-    () => (overlay ? [] : matchCommands(buffer.value)),
-    [overlay, buffer.value]
+    () => (cmdline ? matchCommands(cmdline.value) : []),
+    [cmdline]
   )
 
   useEffect(() => {
-    setMenu((current) => (current >= matches.length ? 0 : current))
+    setCmdIndex((current) => (current >= matches.length ? 0 : current))
   }, [matches.length])
 
-  // The which-key popup waits a beat, so a chord you already know does not
-  // flash a menu at you on the way past.
+  // A flash is a moment, not a state. It goes away on its own, and anything
+  // that happens afterwards replaces it rather than queueing behind it.
+  useEffect(() => {
+    if (!flashed) return
+    const timer = setTimeout(() => setFlashed(null), FLASH_MS[flashed.level] ?? FLASH_MS.info)
+    return () => clearTimeout(timer)
+  }, [flashed])
+
+  // The key menu waits a beat, so a chord you already know does not flash a
+  // menu at you on the way past.
   useEffect(() => {
     if (pending.length === 0) {
       setWhichKey(false)
@@ -502,35 +551,86 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
     return () => clearTimeout(timer)
   }, [pending, settings.whichKeyDelayMs])
 
-  const complete = (command) => {
+  const openCmdline = useCallback((value = '') => {
+    setCmdline(createBuffer(value))
+    setCmdIndex(0)
+    setPending([])
+  }, [])
+
+  const closeCmdline = useCallback(() => {
+    setCmdline(null)
+    setCmdIndex(0)
+  }, [])
+
+  /** Tab: take the highlighted name, and leave the cursor where the args go. */
+  const complete = useCallback((command) => {
     if (!command) return
-    // A command that takes an argument leaves you mid-line to type it; one that
-    // does not is what you asked for, so run it.
-    if (command.args) {
-      setBuffer((b) => setValue(b, `/${command.name} `))
-      setMenu(0)
+    setCmdline((b) => setValue(b, command.args ? `${command.name} ` : command.name))
+    setCmdIndex(0)
+  }, [])
+
+  // Every key the command line takes, in one place, the way every other key in
+  // this app is handled — see the note at the top of this file.
+  const onCmdlineKey = useCallback((input, key) => {
+    if (key.escape || (key.ctrl && input === 'c')) return closeCmdline()
+
+    if (key.tab) return complete(matches[cmdIndex])
+    if (key.upArrow || (key.ctrl && input === 'k')) {
+      return setCmdIndex((i) => (matches.length ? (i - 1 + matches.length) % matches.length : 0))
+    }
+    if (key.downArrow || (key.ctrl && input === 'j')) {
+      return setCmdIndex((i) => (matches.length ? (i + 1) % matches.length : 0))
+    }
+    if (key.pageUp) return setCmdIndex(0)
+    if (key.pageDown) return setCmdIndex(Math.max(0, Math.min(matches.length, CMDLINE_ROWS) - 1))
+
+    // Ctrl-P and Ctrl-N walk back through commands you have run, the way the
+    // arrows do in the message box. The arrows are spoken for here.
+    const recall = key.ctrl && (input === 'p' || input === 'n')
+    const edit = applyKey(cmdline, recall ? '' : input, recall
+      ? { upArrow: input === 'p', downArrow: input === 'n' }
+      : key)
+    if (!edit) return
+
+    if (edit.submit !== undefined) {
+      const typed = edit.submit.trim()
+
+      // A complete command runs as typed — that is the only way `:dm <key>`
+      // reaches anything, since the argument is not something the list knows.
+      if (parseCommand(typed).kind === 'command') {
+        closeCmdline()
+        return run(typed)
+      }
+
+      // Otherwise the highlighted row is what you meant: `me` is not a command
+      // but `members` is the only thing under it, and sending "me" to the room
+      // is never what anybody wanted. One that still needs an argument stays
+      // open with the name filled in, because there is nothing to run yet.
+      const picked = matches[cmdIndex]
+      if (picked) {
+        if (picked.args) return complete(picked)
+        closeCmdline()
+        return run(picked.name)
+      }
+
+      // Nothing typed and nothing to pick: close. Anything else is reported.
+      closeCmdline()
+      if (typed) run(typed)
       return
     }
-    setBuffer((b) => setValue(b, ''))
-    setMenu(0)
-    submit(`/${command.name}`)
-  }
+
+    setCmdline(edit.buffer)
+    setCmdIndex(0)
+  }, [cmdline, matches, cmdIndex, complete, closeCmdline, run])
 
   useInput((input, key) => {
     if (exiting) return
 
-    // The completion menu owns the keys that would otherwise move the cursor,
-    // because a half-typed `/mem` sent as a chat message is never what anyone
-    // meant.
-    if (matches.length > 0) {
-      if (key.upArrow) return setMenu((i) => (i - 1 + matches.length) % matches.length)
-      if (key.downArrow) return setMenu((i) => (i + 1) % matches.length)
-      if (key.tab || key.return) return complete(matches[menu])
-      if (key.escape) {
-        setBuffer((b) => setValue(b, ''))
-        return
-      }
-    }
+    // The command line owns the keyboard outright while it is open. It is a
+    // separate line of text with its own cursor and its own history, and a key
+    // that reached the message box from here would type into a message nobody
+    // can see.
+    if (cmdline) return onCmdlineKey(input, key)
 
     // While the conversation list has the keyboard it owns these keys outright,
     // in either mode. A pane you can move around in that still types into the
@@ -587,8 +687,8 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
   const entries = transcript(state)
 
   // Which keys are still reachable from a half-typed chord. Computed here
-  // rather than in the popup, because the screen has to give up the rows the
-  // popup is about to take before it decides how tall the chat pane is.
+  // rather than in the menu, because whether there are any is what decides
+  // which window the screen is handed, and only one may be open at a time.
   const candidates = useMemo(
     () => (!overlay && whichKey && pending.length > 0
       ? (resolvers[mode] || resolvers.insert).candidates(pending)
@@ -596,20 +696,27 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
     [overlay, whichKey, pending, resolvers, mode]
   )
 
-  // Neither the command menu nor the which-key popup takes a row from the
-  // conversation. They are drawn over the bottom of it, anchored to the prompt,
-  // because a menu that pushes the transcript up the screen means every slash
-  // you type makes the thing you were reading move.
-  const menuRows = menuHeight(matches)
-  const chordRows = whichKeyHeight(candidates, terminal)
-
+  // Every window in this app is laid over the frame rather than wedged into it,
+  // so the screen is measured once and does not depend on what is open. The
+  // title bar, the conversation, the prompt and the statusline are in the same
+  // place whatever you press — which is the property that makes reaching for a
+  // key feel like nothing at all rather than like the page moving under you.
   const layout = useMemo(
     () => screenLayout(terminal, { sidebar: settings.sidebar }),
     [terminal, settings.sidebar]
   )
 
+  // Only one of them is ever open: the command line belongs to a command you
+  // are typing and the key menu to a chord you are halfway through, and you
+  // cannot be doing both.
+  const showChord = !cmdline && candidates.length > 0
+
   // Everything behind a float loses its colour, so the float reads as the thing
   // in front rather than as one more panel competing with the conversation.
+  // Only a window you are *in* drains the colour from what is behind it. The
+  // key menu is a hint you glanced at on the way to pressing something, and
+  // grey-washing the entire app for it made openchat look switched off every
+  // time a chord was half-typed.
   const muted = Boolean(overlay)
 
   const { rows: transcriptRows, anchors } = useMemo(() => chatRows({
@@ -633,14 +740,28 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
       profile,
       version,
       columns: layout.chatWidth - 2,
+      rows: layout.bodyRows,
       logo: settings.banner
-    })), [state.room, theme, state.self, profile, version, layout.chatWidth, settings.banner])
+    })), [state.room, theme, state.self, profile, version, layout.chatWidth, layout.bodyRows, settings.banner])
+
+  // A conversation with nothing in it yet is a blank pane that looks like a
+  // failure and is not one. It gets the same treatment as the welcome: a few
+  // rows saying where you are and what the next keypress is.
+  const opening = useMemo(() => (state.room && state.messages.length === 0
+    ? emptyRows({
+      theme,
+      room: state.room,
+      owned: Boolean(state.room.owned),
+      columns: layout.chatWidth - 2
+    })
+    : null), [state.room, state.messages.length, theme, layout.chatWidth])
 
   // With nothing open the pane introduces itself — but it must not swallow
   // what just happened. Leaving or deleting your last conversation lands you
   // here, and the confirmation for it is a notice, which lives in the
-  // transcript. Show both: the welcome, then whatever has been said since.
-  const rows = welcome ? [...welcome, ...transcriptRows] : transcriptRows
+  // transcript. Show both: the intro, then whatever has been said since.
+  const intro = welcome || opening
+  const rows = intro ? [...intro, ...transcriptRows] : transcriptRows
 
   // Scrolling is clamped on every render rather than only when you scroll: the
   // transcript grows under you, and the window shrinks when you open the
@@ -727,7 +848,7 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
     if (id) openConversation(id)
   }, [targets, picked, openConversation])
 
-  const uiMode = overlay ? 'float' : mode
+  const uiMode = overlay ? 'float' : cmdline ? 'command' : mode
 
   // `off` means every float behaves as though the terminal had no mouse at all,
   // and `always` keeps reporting on so the sidebar and the transcript are
@@ -801,19 +922,18 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
               backdrop={backdrop}
               overlay={overlay}
               theme={theme}
-              terminal={terminal}
+              screen={layout}
               state={state}
               client={client}
               profile={profile}
               settings={settings}
               accounts={accounts}
               accountItems={accountItems}
-              items={{ conversations, people, members, searchMessages, commands: commandItems, keymaps: keymapItems }}
+              items={{ conversations, people, members, searchMessages, keymaps: keymapItems }}
               notice={notice}
-              submit={submit}
+              flash={flash}
+              run={run}
               close={close}
-              setBuffer={setBuffer}
-              setMode={setMode}
               setOverlay={setOverlay}
               openConversation={openConversation}
               reveal={setRevealing}
@@ -822,25 +942,28 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
               onCreateAccount={onCreateAccount}
             />
             )
-          : menuRows > 0
-            ? anchored(layout, menuRows, (
-              <CommandMenu
+          : cmdline
+            ? (backdrop) => (
+              <Cmdline
                 theme={theme}
-                value={buffer.value}
+                screen={layout}
+                value={cmdline.value}
+                cursor={cmdline.cursor}
                 matches={matches}
-                selected={menu}
-                columns={layout.columns}
+                selected={cmdIndex}
+                backdrop={backdrop}
               />
-            ))
-            : chordRows > 0
-              ? anchored(layout, chordRows, (
+              )
+            : showChord
+              ? (backdrop) => (
                 <WhichKey
                   theme={theme}
-                  terminal={terminal}
+                  screen={layout}
                   pending={pending}
                   candidates={candidates}
+                  backdrop={backdrop}
                 />
-              ))
+                )
               : null}
         input={
           <InputBar
@@ -850,7 +973,9 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
             cursor={buffer.cursor}
             busy={busy || exiting}
             width={layout.columns}
-            placeholder={placeholderFor(state.room, mode)}
+            target={state.room ? conversationLabel(state.room.kind, state.room.name) : null}
+            placeholder={placeholderFor(state.room, uiMode)}
+            flash={flashed}
           />
         }
         status={
@@ -874,34 +999,20 @@ export function App ({ client, profile, version, onSwitchAccount, onCreateAccoun
   )
 }
 
-/**
- * Draw something over the bottom of the conversation, keeping the rows above it.
- *
- * The command menu and the which-key popup both belong directly above the
- * prompt and neither should cost the conversation a row, so both are composited
- * the same way a float is — see Screen.jsx.
- */
-function anchored (layout, rows, node) {
-  return (backdrop) => (
-    <>
-      {backdrop.slice(0, Math.max(0, layout.bodyRows - rows))}
-      {node}
-    </>
-  )
-}
-
 /** Whichever floating window is open. Split out to keep App's render readable. */
 function Overlay ({
-  overlay, theme, terminal, backdrop, state, client, profile, settings, accounts, accountItems, items,
-  notice, submit, close, setBuffer, setMode, setOverlay, openConversation, reveal,
+  overlay, theme, screen, backdrop, state, client, profile, settings, accounts, accountItems, items,
+  notice, flash, run, close, setOverlay, openConversation, reveal,
   changeSetting, onSwitchAccount, onCreateAccount
 }) {
-  const shared = { theme, terminal, backdrop, onCancel: close }
+  const shared = { theme, screen, backdrop, onCancel: close }
 
   // Copying happens inside a window, but the confirmation belongs outside it:
   // the window is about to be closed, and "did that work" is a question you ask
-  // after it has gone.
-  const onCopy = (what) => notice(`copied ${what} to the clipboard`)
+  // after it has gone. It is an answer to a keypress rather than something that
+  // happened in the room, so it flashes above the prompt and then goes — see
+  // the note on `flash` in App.
+  const onCopy = (what) => flash(`copied ${what}`)
 
   if (overlay.kind === 'float') {
     if (overlay.name === 'settings') {
@@ -956,13 +1067,12 @@ function Overlay ({
             onSwitchAccount?.(name)
           }}
           onCreate={() => setOverlay({ kind: 'prompt', name: 'account' })}
-          onRestore={() => setOverlay({ kind: 'prompt', name: 'account-restore' })}
         />
       )
     }
   }
 
-  if (overlay.kind === 'prompt') return <Prompts {...{ overlay, theme, terminal, backdrop, close, submit, setOverlay, onCreateAccount, notice }} />
+  if (overlay.kind === 'prompt') return <Prompts {...{ overlay, theme, screen, backdrop, close, run, setOverlay, onCreateAccount, notice }} />
 
   // --- pickers ------------------------------------------------------------
 
@@ -1006,11 +1116,11 @@ function Overlay ({
         ],
         onSubmit: (item) => {
           close()
-          submit(`/dm ${item.data.key}`)
+          run(`dm ${item.data.key}`)
         },
         onEmpty: (query) => {
           close()
-          submit(`/dm ${query}`)
+          run(`dm ${query}`)
         }
       })
 
@@ -1027,24 +1137,7 @@ function Overlay ({
         onSubmit: (item) => {
           close()
           if (item.id === client.identity.publicKeyHex) return notice('that is you')
-          submit(`/dm ${item.id}`)
-        }
-      })
-
-    case 'commands':
-      return picker({
-        title: 'Commands',
-        icon: theme.icons.selected,
-        items: items.commands,
-        placeholder: 'what do you want to do',
-        onSubmit: (item) => {
-          close()
-          if (item.data.args) {
-            setBuffer((b) => setValue(b, `/${item.data.name} `))
-            setMode('insert')
-            return
-          }
-          submit(`/${item.data.name}`)
+          run(`dm ${item.id}`)
         }
       })
 
@@ -1095,8 +1188,8 @@ function Overlay ({
 }
 
 /** The one-line questions: a room name, an invite, a new account. */
-function Prompts ({ overlay, theme, terminal, backdrop, close, submit, setOverlay, onCreateAccount, notice }) {
-  const shared = { theme, terminal, backdrop, onCancel: close }
+function Prompts ({ overlay, theme, screen, backdrop, close, run, setOverlay, onCreateAccount, notice }) {
+  const shared = { theme, screen, backdrop, onCancel: close }
 
   switch (overlay.name) {
     case 'new':
@@ -1109,7 +1202,7 @@ function Prompts ({ overlay, theme, terminal, backdrop, close, submit, setOverla
           help='You will own it. Nobody can join until you hand out an invite.'
           onSubmit={(name) => {
             close()
-            submit(`/new ${name}`)
+            run(`new ${name}`)
           }}
         />
       )
@@ -1124,7 +1217,7 @@ function Prompts ({ overlay, theme, terminal, backdrop, close, submit, setOverla
           help='An invite carries the room key and its encryption key. Treat it like a password.'
           onSubmit={(invite) => {
             close()
-            submit(`/join ${invite}`)
+            run(`join ${invite}`)
           }}
         />
       )
@@ -1156,21 +1249,6 @@ function Prompts ({ overlay, theme, terminal, backdrop, close, submit, setOverla
         />
       )
 
-    case 'account-restore':
-      return (
-        <Prompt
-          {...shared}
-          title='Restore an account'
-          icon={theme.icons.key}
-          placeholder='the 24 words you saved'
-          help='This brings an identity from another machine onto this one, key and all.'
-          onSubmit={(mnemonic) => {
-            close()
-            onCreateAccount?.({ profile: null, mnemonic })
-          }}
-        />
-      )
-
     default:
       notice(`nothing to prompt for: ${overlay.name}`, 'error')
       return null
@@ -1178,7 +1256,8 @@ function Prompts ({ overlay, theme, terminal, backdrop, close, submit, setOverla
 }
 
 function placeholderFor (room, mode) {
-  if (mode === 'normal') return 'press i to write, space for the menu'
-  if (!room) return 'space f d to message someone, space r n for a new room'
-  return `message ${conversationLabel(room.kind, room.name)}, or / for commands`
+  if (mode === 'command') return 'the command line has the keyboard'
+  if (mode === 'normal') return 'i to write  ·  ␣ for the key menu  ·  : for a command'
+  if (!room) return '␣ f d to message someone  ·  ␣ r n for a new room'
+  return `message ${conversationLabel(room.kind, room.name)}`
 }

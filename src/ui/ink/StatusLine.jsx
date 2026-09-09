@@ -1,11 +1,16 @@
 // The statusline: lualine's layout, with the things a chat client actually has
 // to keep in front of you.
 //
-// Left to right — which mode you are in, where you are, whether you are
-// connected and to how many peers, and who you are while you are there. On the
-// right, what is happening somewhere else and the one key that opens
-// everything. One row, and never more: this is the line you read without
-// looking at it.
+// It says where *you* are, and the title bar says what you are looking at. The
+// two used to overlap — both named the room, both counted peers — and a line
+// you have already read at the top of the screen is a line you stop reading at
+// the bottom of it. So the room and the swarm live up there now, and what is
+// left down here is the four things that are about this seat rather than about
+// the conversation: which mode your keys are in, which account you are, whether
+// anything is happening in a room you are not looking at, and the one key that
+// opens everything.
+//
+// One row, and never more: this is the line you read without looking at it.
 
 import React from 'react'
 import { Box, Text } from 'ink'
@@ -24,12 +29,16 @@ export function StatusLine ({
 
   // On a narrow terminal the hints on the right are the first thing to go:
   // they are a reminder, and the left-hand side is the part you are reading.
-  const left = 10 + width(room?.name || 'no room') + width(self?.nick || 'you') + width(profile || '') + 14
+  const left = 10 + width(self?.nick || 'you') + width(profile || '') + 14
   const hints = columns - left > 24
 
-  const state = connection.state
-  const peerColor = state === 'online' ? theme.green : state === 'connecting' ? theme.yellow : theme.red
-  const peers = connection.peers === 1 ? '1 peer' : `${connection.peers} peers`
+  // A state you can be in without having chosen it, and that changes what the
+  // screen means, gets said in words. Being scrolled back is the one that
+  // catches people out: messages arrive below the fold and nothing moves.
+  const warnings = [
+    room && !writable ? { text: 'waiting to be admitted', color: theme.yellow } : null,
+    scrolled ? { text: `scrolled back ${icons.sep} G for the newest`, color: theme.orange } : null
+  ].filter(Boolean)
 
   return (
     <Box width={columns} height={1} flexShrink={0} justifyContent='space-between' overflow='hidden'>
@@ -38,39 +47,28 @@ export function StatusLine ({
           {listFocused ? ' LIST ' : ` ${MODE_LABEL[mode] || 'NORMAL'} `}
         </Text>
 
-        <Text backgroundColor={theme.float} color={theme.accent} bold>
-          {room ? ` ${room.kind === 'dm' ? icons.dm : icons.room}${room.name} ` : ' no room '}
+        {/* Who you are, and which of your identities is speaking. Two accounts
+            on one machine share nothing, so the one thing you must never be
+            wrong about is which of them you just typed into. */}
+        <Text backgroundColor={theme.float} color={theme.accent2} bold>
+          {` ${self?.nick || 'you'}`}
         </Text>
-        {room?.closed
-          ? <Text backgroundColor={theme.float} color={theme.yellow}>{`${icons.closed} `}</Text>
-          : ''}
-        {room?.owned
-          ? <Text backgroundColor={theme.float} color={theme.yellow}>{`${icons.owner} `}</Text>
-          : ''}
+        <Text backgroundColor={theme.float} color={theme.subtle}>
+          {profile ? `@${profile} ` : ' '}
+        </Text>
 
-        <Text color={peerColor}>{` ${icons.unread}`}</Text>
-        <Text color={theme.dim}>{` ${peers}`}</Text>
-
-        <Text color={theme.subtle}>{` ${icons.sep} `}</Text>
-        <Text color={theme.accent2}>{self?.nick || 'you'}</Text>
-        {profile ? <Text color={theme.subtle}>{`@${profile}`}</Text> : ''}
-
-        {room && !writable
-          ? <Text color={theme.yellow}>{` ${icons.sep} waiting to be admitted`}</Text>
-          : ''}
-
-        {/* Reading back through a room is a state you can forget you are in —
-            new messages arrive below the fold and nothing moves. */}
-        {scrolled
-          ? <Text color={theme.orange}>{` ${icons.sep} scrolled back, G for the newest`}</Text>
-          : ''}
+        {warnings.map((warning) => (
+          <Text key={warning.text} color={warning.color}>
+            {` ${icons.warn} ${warning.text}`}
+          </Text>
+        ))}
       </Box>
 
       <Box>
         {elsewhere > 0
           ? (
             <Text color={theme.orange} bold>
-              {`${elsewhere} unread `}
+              {`${icons.unread} ${elsewhere} elsewhere  `}
             </Text>
             )
           : ''}

@@ -10,6 +10,8 @@
 // The bindings are readline's, which is what a terminal user has in their
 // fingers whether or not they use vim.
 
+import { typed } from './text.js'
+
 export function createBuffer (value = '') {
   return {
     value,
@@ -32,20 +34,7 @@ const WORD = /[^\s/@#]/
 export function applyKey (buffer, input, key) {
   const { value, cursor } = buffer
 
-  if (key.return) {
-    const line = value
-    return {
-      submit: line,
-      buffer: {
-        ...buffer,
-        value: '',
-        cursor: 0,
-        history: line.trim() ? [...buffer.history, line].slice(-200) : buffer.history,
-        historyAt: null,
-        draft: null
-      }
-    }
-  }
+  if (key.return) return commit(buffer, value)
 
   if (key.leftArrow || (key.ctrl && input === 'b')) return move(buffer, Math.max(0, cursor - 1))
   if (key.rightArrow || (key.ctrl && input === 'f')) return move(buffer, Math.min(value.length, cursor + 1))
@@ -79,12 +68,15 @@ export function applyKey (buffer, input, key) {
 
   if (key.ctrl || key.meta || key.tab || key.escape) return null
 
-  // A paste arrives as one chunk; a keypress as one character. Both are just
-  // text going in at the cursor. Newlines inside a paste become spaces rather
-  // than sending a dozen half-messages.
+  // A paste arrives as one chunk; a keypress as one character; a name typed
+  // quickly and confirmed arrives as `ada\r`. All three are text going in at
+  // the cursor, and the last one is also an enter — see `typed` in text.js for
+  // why that cannot be left to Ink.
   if (input && !isControl(input)) {
-    const text = input.replace(/\r?\n/g, ' ')
-    return edit(buffer, value.slice(0, cursor) + text + value.slice(cursor), cursor + text.length)
+    const { text, submit } = typed(input)
+    const line = value.slice(0, cursor) + text + value.slice(cursor)
+    if (submit) return commit(buffer, line)
+    return edit(buffer, line, cursor + text.length)
   }
 
   return null
@@ -97,6 +89,21 @@ export function setValue (buffer, value, cursor = value.length) {
 
 function move (buffer, cursor) {
   return { buffer: { ...buffer, cursor } }
+}
+
+/** Hand the line over and start a new one, keeping it in the history. */
+function commit (buffer, line) {
+  return {
+    submit: line,
+    buffer: {
+      ...buffer,
+      value: '',
+      cursor: 0,
+      history: line.trim() ? [...buffer.history, line].slice(-200) : buffer.history,
+      historyAt: null,
+      draft: null
+    }
+  }
 }
 
 function edit (buffer, value, cursor) {

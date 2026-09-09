@@ -1,5 +1,5 @@
-// Tier 2 — on-disk state: the Corestore that holds every hypercore, plus the
-// small JSON config that remembers which rooms and people this profile knows.
+// Tier 2 — on-disk state: the Corestore that holds every hypercore, and the
+// database that remembers which accounts exist and what each of them knows.
 //
 // Everything the UI renders is derived from the store, never from memory alone.
 // That is what makes an offline member catching up work: the logs are already
@@ -8,16 +8,32 @@
 // State is scoped to a *profile*, so one machine can hold several independent
 // identities — one per terminal, if you like. Profiles share nothing: separate
 // keys, separate stores, separate rooms.
+//
+// This file is where a profile is decided; accounts-db.js is where it is kept.
+// The split matters because there are two places a database can be, and which
+// one you get is a question about the *directory*, not about SQL:
+//
+//   ~/.openchat/profiles/<name>   a managed account. Its row lives in the one
+//                                 database at ~/.openchat/openchat.db, along
+//                                 with every other account and the record of
+//                                 which one is in use.
+//   anywhere else                 a directory pointed at directly, which is what
+//                                 OPENCHAT_DIR means and what every test peer
+//                                 is. That directory *is* the profile, so it
+//                                 carries its own database and shares nothing.
+//
+// Every function below reads and writes the same shapes it always did. The
+// callers were never told where a config was kept and still are not.
 
 import os from 'node:os'
 import path from 'node:path'
-import { readFile, writeFile, mkdir, readdir, rm, rename } from 'node:fs/promises'
+import { mkdir, rm } from 'node:fs/promises'
 import Corestore from 'corestore'
 import b4a from 'b4a'
 
-import { DEFAULT_AUTO_DOWNLOAD_BYTES } from '../protocol/constants.js'
+import { openAccounts, defaultConfig, DB_FILE } from './accounts-db.js'
 
-const CONFIG_VERSION = 1
+export { defaultConfig }
 
 export const DEFAULT_PROFILE = 'default'
 
@@ -37,44 +53,60 @@ export function profileDir (name = DEFAULT_PROFILE) {
   return path.join(rootDir(), 'profiles', sanitizeProfile(name))
 }
 
+/** The one database that knows what accounts this machine has. */
+function registry () {
+  return openAccounts(path.join(rootDir(), DB_FILE))
+}
+
+/**
+ * Which database holds a directory's account, and under what name.
+ *
+ * A managed profile is a row in the machine's database. Anything else is a
+ * directory somebody pointed at, and it keeps its own — see the note at the top
+ * of this file.
+ */
+function accountFor (dir) {
+  const resolved = path.resolve(dir)
+  const managed = path.resolve(path.join(rootDir(), 'profiles'))
+
+  if (path.dirname(resolved) === managed) {
+    return { store: registry(), profile: path.basename(resolved) }
+  }
+  return { store: openAccounts(path.join(resolved, DB_FILE)), profile: DEFAULT_PROFILE }
+}
+
 /** The profile in use when none is named: the last one logged into. */
 export async function currentProfile () {
   if (process.env.OPENCHAT_PROFILE) return sanitizeProfile(process.env.OPENCHAT_PROFILE)
-  try {
-    const raw = JSON.parse(await readFile(path.join(rootDir(), 'current.json'), 'utf8'))
-    return raw.profile ? sanitizeProfile(raw.profile) : DEFAULT_PROFILE
-  } catch {
-    return DEFAULT_PROFILE
-  }
+  const current = registry().current()
+  return current ? sanitizeProfile(current) : DEFAULT_PROFILE
 }
 
 export async function setCurrentProfile (name) {
-  await mkdir(rootDir(), { recursive: true })
-  await writeFile(
-    path.join(rootDir(), 'current.json'),
-    JSON.stringify({ profile: sanitizeProfile(name) }, null, 2),
-    { mode: 0o600 }
-  )
+  registry().setCurrent(sanitizeProfile(name))
   return name
 }
 
+/**
+ * Every account on this machine.
+ *
+ * A row, not a directory. A directory with a key in it and no row is something
+ * that was half-made and then abandoned — which used to be indistinguishable
+ * from an account and is how a machine ends up listing three of them that
+ * nobody meant to create.
+ */
 export async function listProfiles () {
-  try {
-    const entries = await readdir(path.join(rootDir(), 'profiles'), { withFileTypes: true })
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort()
-  } catch (err) {
-    if (err.code === 'ENOENT') return []
-    throw err
-  }
+  return registry().list()
 }
 
 export async function profileExists (name) {
-  return (await listProfiles()).includes(sanitizeProfile(name))
+  return registry().has(sanitizeProfile(name))
 }
 
 export async function deleteProfile (name) {
-  const dir = path.join(rootDir(), 'profiles', sanitizeProfile(name))
-  await rm(dir, { recursive: true, force: true })
+  const profile = sanitizeProfile(name)
+  registry().remove(profile)
+  await rm(path.join(rootDir(), 'profiles', profile), { recursive: true, force: true })
 }
 
 /**
@@ -90,10 +122,6 @@ export function sanitizeProfile (name) {
 
 export function storePath (dir) {
   return path.join(dir, 'store')
-}
-
-export function configPath (dir) {
-  return path.join(dir, 'config.json')
 }
 
 /**
@@ -139,72 +167,22 @@ export class AccountInUseError extends Error {
   }
 }
 
-export function defaultConfig () {
-  return {
-    v: CONFIG_VERSION,
-    nick: null,
-    autoDownloadBytes: DEFAULT_AUTO_DOWNLOAD_BYTES,
-    rooms: [],
-    contacts: [], // [{ key, name, addedAt, verifiedAt }]
-    dms: [], // [{ key, name, outbox }] — peers we have a conversation with
-    lastRoom: null,
-    onboarded: false
-  }
-}
-
+/**
+ * Everything one account knows, as one object.
+ *
+ * Reading an account that has no row is not an error — it is a directory with a
+ * key in it and nothing said about it yet, which is exactly where onboarding
+ * leaves you — so it comes back as the defaults.
+ */
 export async function readConfig (dir) {
-  let raw
-  try {
-    raw = await readFile(configPath(dir), 'utf8')
-  } catch (err) {
-    if (err.code === 'ENOENT') return defaultConfig()
-    throw err
-  }
-
-  let parsed
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    // A truncated write or a hand-edit should not be a stack trace on startup.
-    // Keep the damaged file so nothing is silently destroyed, and carry on with
-    // defaults — identity lives in a separate file and is unaffected.
-    const salvaged = `${configPath(dir)}.corrupt-${Date.now()}`
-    await writeFile(salvaged, raw).catch(() => {})
-    return { ...defaultConfig(), recovered: salvaged }
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return defaultConfig()
-
-  // Coerce the collections: a config edited by hand can have the right keys
-  // with the wrong shapes, and everything downstream assumes arrays.
-  return {
-    ...defaultConfig(),
-    ...parsed,
-    rooms: Array.isArray(parsed.rooms) ? parsed.rooms.filter(isRoomEntry) : [],
-    contacts: Array.isArray(parsed.contacts) ? parsed.contacts.filter(isPeerEntry) : [],
-    dms: Array.isArray(parsed.dms) ? parsed.dms.filter(isPeerEntry) : []
-  }
-}
-
-const HEX64 = /^[0-9a-f]{64}$/i
-
-function isRoomEntry (entry) {
-  return !!entry && HEX64.test(entry.key || '') && HEX64.test(entry.encryptionKey || '')
-}
-
-function isPeerEntry (entry) {
-  return !!entry && HEX64.test(entry.key || '')
+  const { store, profile } = accountFor(dir)
+  return store.read(profile) ?? defaultConfig()
 }
 
 export async function writeConfig (config, dir) {
   await mkdir(dir, { recursive: true })
-
-  // Write-then-rename: a crash between the two leaves the old config intact
-  // rather than a half-written one. Renaming within a directory is atomic.
-  const target = configPath(dir)
-  const temporary = `${target}.${process.pid}.tmp`
-  await writeFile(temporary, JSON.stringify(config, null, 2), { mode: 0o600 })
-  await rename(temporary, target)
+  const { store, profile } = accountFor(dir)
+  store.write(profile, config)
   return config
 }
 
@@ -313,16 +291,30 @@ export function resolvePeer (input, config) {
   return null
 }
 
-/** Remember that we have a conversation with someone. */
-export async function rememberDm ({ key, name, outbox }, dir) {
+/**
+ * Remember that we have a conversation with someone.
+ *
+ * `name` is a label you chose for them and `announced` is the name they gave
+ * themselves — kept apart so that a nick change on their side cannot quietly
+ * rename a contact you named, and so a conversation opened from a bare public
+ * key still has something to be called before they are online.
+ */
+export async function rememberDm ({ key, name, announced, outbox }, dir) {
   const config = await readConfig(dir)
   const existing = config.dms.find((d) => d.key === key)
 
   if (existing) {
     if (name) existing.name = name
+    if (announced) existing.announced = announced
     if (outbox) existing.outbox = outbox
   } else {
-    config.dms.push({ key, name: name || null, outbox: outbox || null, startedAt: Date.now() })
+    config.dms.push({
+      key,
+      name: name || null,
+      announced: announced || null,
+      outbox: outbox || null,
+      startedAt: Date.now()
+    })
   }
 
   await writeConfig(config, dir)

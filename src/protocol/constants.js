@@ -46,5 +46,5 @@ export const SYSTEM_EVENT = { join: 0, leave: 1, 'writer-added': 2 }
 export const SYSTEM_EVENT_NAME = { 0: 'join', 1: 'leave', 2: 'writer-added' }
 
 // Attachments below this size are fetched automatically on arrival; larger ones
-// wait for an explicit `/download <id>`.
+// wait for an explicit `:download <id>`.
 export const DEFAULT_AUTO_DOWNLOAD_BYTES = 5 * 1024 * 1024

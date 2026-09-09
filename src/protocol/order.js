@@ -6,12 +6,10 @@
 // that answer has to match everywhere or two members reading the same room see
 // different transcripts.
 //
-// So both clients run every message set through `linearize()` before rendering:
-// Lamport clock ascending, then wall-clock, then author key, then id. The last
-// two are arbitrary but total and stable, which is the whole point — given the
-// same set of messages, every client produces the same list, in any arrival
-// order. The browser harness uses this same function as its only ordering
-// mechanism, since it has no Autobase.
+// So every message set goes through `linearize()` before rendering: Lamport
+// clock ascending, then wall-clock, then author key, then id. The last two are
+// arbitrary but total and stable, which is the whole point — given the same set
+// of messages, every client produces the same list, in any arrival order.
 
 /**
  * Total order over messages. Returns <0, 0, or >0.

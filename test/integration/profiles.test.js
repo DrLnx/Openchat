@@ -12,6 +12,7 @@ import {
   sanitizeProfile, rootDir, openStore, AccountInUseError, DEFAULT_PROFILE
 } from '../../src/core/store.js'
 import { Client } from '../../src/core/client.js'
+import { resolveAccountArg } from '../../src/core/accounts.js'
 import { loadIdentity } from '../../src/core/identity.js'
 import { createTestDht, TEST_HOST, waitForMessage, waitFor } from '../helpers.js'
 
@@ -49,6 +50,33 @@ test('profile names cannot escape the profiles directory', () => {
       `${evil} escaped to ${dir}`
     )
   }
+})
+
+test('a bare argument to openchat names an account, unless it names a command', async (t) => {
+  await withHome(t)
+
+  // The plain case, and the whole reason the argument exists: a name this
+  // machine has never seen is a new account, not an error.
+  assert.equal(await resolveAccountArg(['work']), 'work')
+  assert.equal(await resolveAccountArg([]), '', 'nothing means the last one used')
+
+  // A word that is also a slash command belongs to the command — `/whoami`
+  // answers that, and the shell does not.
+  assert.equal(await resolveAccountArg(['whoami']), null)
+  assert.equal(await resolveAccountArg(['help']), null)
+  assert.equal(await resolveAccountArg(['DM']), null, 'whatever it is capitalised as')
+
+  // Unless you actually have an account called that, in which case it is
+  // yours and openchat has no business second-guessing it.
+  const account = new Client({ profile: 'whoami' })
+  await account.ready()
+  t.after(() => account.close())
+  assert.equal(await resolveAccountArg(['whoami']), 'whoami')
+
+  // Anything that is not one word is somebody reaching for a subcommand.
+  assert.equal(await resolveAccountArg(['room', 'create', 'x']), null)
+  assert.equal(await resolveAccountArg(['--profile']), null)
+  assert.equal(await resolveAccountArg(['']), null)
 })
 
 test('two profiles on one machine are separate accounts', async (t) => {

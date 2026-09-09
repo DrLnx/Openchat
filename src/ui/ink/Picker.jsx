@@ -11,6 +11,7 @@ import { Text, useInput } from 'ink'
 
 import { Float, FloatRow, FloatRule, FloatFill } from './Float.jsx'
 import { rank, segments } from '../model/fuzzy.js'
+import { typed } from '../model/text.js'
 import { floatLayout, hitTest, scrollTo } from '../model/layout.js'
 import { useMouse, useMouseCapture } from './mouse.js'
 
@@ -24,7 +25,7 @@ const FOOTER = [
 /**
  * @param {object} props
  * @param {object} props.theme
- * @param {{ rows: number, columns: number }} props.terminal
+ * @param {object} props.screen  from ui/model/layout.js screenLayout()
  * @param {string} props.title
  * @param {PickerItem[]} props.items
  * @param {(item: PickerItem, query: string) => void} props.onSubmit
@@ -42,7 +43,7 @@ const FOOTER = [
  * @property {any} [data]
  */
 export function Picker ({
-  theme, terminal, title, icon, items, placeholder = 'type to filter',
+  theme, screen, title, icon, items, placeholder = 'type to filter',
   onSubmit, onCancel, onSecondary, onEmpty, footer = FOOTER, allowFreeText = false, backdrop,
   onSearch
 }) {
@@ -76,8 +77,8 @@ export function Picker ({
   }, [items, query, onSearch])
 
   const layout = useMemo(
-    () => floatLayout(terminal, { items: Math.max(matches.length, 1), maxRows: 22 }),
-    [terminal, matches.length]
+    () => floatLayout(screen, { items: Math.max(matches.length, 1), maxRows: 22 }),
+    [screen, matches.length]
   )
 
   // A narrowing list must not leave the cursor pointing past the end of it.
@@ -102,6 +103,12 @@ export function Picker ({
     if (allowFreeText && query.trim()) return onEmpty?.(query.trim())
   }, [matches, selected, onSubmit, onEmpty, query, allowFreeText])
 
+  // A paste that ends in a newline submits, and it has to submit against the
+  // query the paste just produced rather than the one React has rendered so
+  // far, so this is read through a ref a tick later.
+  const submitRef = useRef(take)
+  submitRef.current = take
+
   useInput((input, key) => {
     if (key.escape || (key.ctrl && input === 'c')) return onCancel()
     if (key.return) return take()
@@ -116,9 +123,13 @@ export function Picker ({
     if (key.ctrl && input === 'u') return setQuery('')
     if (key.ctrl && input === 'w') return setQuery((q) => q.replace(/\s*\S+\s*$/, ''))
     if (key.ctrl || key.meta) return
+    if (!input) return
 
-    // eslint-disable-next-line no-control-regex
-    if (input && !/^[\u0000-\u001f\u007f]+$/.test(input)) setQuery((q) => q + input)
+    // A pasted public key arrives as one chunk, often with the newline the
+    // terminal copied with it. See `typed` in ui/model/text.js.
+    const { text, submit } = typed(input)
+    if (text) setQuery((q) => q + text)
+    if (submit) submitRef.current()
   })
 
   useMouseCapture(true)
@@ -236,10 +247,10 @@ function Row ({ theme, layout, inner, match, selected }) {
   )
 }
 
-/** A picker for one free-text answer — `/new <name>`, an invite string. */
-export function Prompt ({ theme, terminal, title, icon, placeholder, help, onSubmit, onCancel, backdrop }) {
+/** A picker for one free-text answer — `:new <name>`, an invite string. */
+export function Prompt ({ theme, screen, title, icon, placeholder, help, onSubmit, onCancel, backdrop }) {
   const [value, setValue] = useState('')
-  const layout = useMemo(() => floatLayout(terminal, { items: 1, minRows: 7, maxRows: 7 }), [terminal])
+  const layout = useMemo(() => floatLayout(screen, { items: 1, minRows: 7, maxRows: 7 }), [screen])
 
   useInput((input, key) => {
     if (key.escape || (key.ctrl && input === 'c')) return onCancel()
@@ -248,8 +259,14 @@ export function Prompt ({ theme, terminal, title, icon, placeholder, help, onSub
     if (key.ctrl && input === 'u') return setValue('')
     if (key.ctrl && input === 'w') return setValue((v) => v.replace(/\s*\S+\s*$/, ''))
     if (key.ctrl || key.meta || key.tab) return
-    // eslint-disable-next-line no-control-regex
-    if (input && !/^[\u0000-\u001f\u007f]+$/.test(input)) setValue((v) => v + input)
+    if (!input) return
+
+    // An invite is pasted, never typed, and a pasted line brings its newline
+    // with it. See `typed` in ui/model/text.js.
+    const { text, submit } = typed(input)
+    const next = value + text
+    if (text) setValue(next)
+    if (submit) return next.trim() ? onSubmit(next.trim()) : onCancel()
   })
 
   useMouseCapture(true)

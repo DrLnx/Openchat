@@ -10,6 +10,7 @@
 
 import React from 'react'
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -26,6 +27,9 @@ const OUT = path.join(root, 'shots')
 const HOST = '127.0.0.1'
 const COLUMNS = 104
 const ROWS = 32
+// Read rather than hardcoded: a screenshot showing last release's version is
+// the kind of wrong nobody notices until it is on the README.
+const VERSION = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version
 
 const only = process.argv.slice(2).filter((a) => !a.startsWith('-'))
 const dirs = []
@@ -47,7 +51,7 @@ async function main () {
   await grace.setNick('grace')
 
   const app = renderApp(
-    React.createElement(App, { client: ada, profile: 'work', version: '0.1.0' }),
+    React.createElement(App, { client: ada, profile: 'work', version: VERSION }),
     { columns: COLUMNS, rows: ROWS }
   )
   await sleep(800)
@@ -83,13 +87,13 @@ async function main () {
 
   // --- keys, in a window rather than in the transcript ---------------------
 
-  await app.type('/invite')
+  await command(app, 'invite')
   await sleep(700)
   await shot('03-invite', 'An invite is a secret, so it opens in a window instead of scrolling away in the log.')
   await app.press(KEY.escape)
   await sleep(400)
 
-  await app.type('/whoami')
+  await command(app, 'whoami')
   await sleep(700)
   await shot('04-identity', 'Your keys, in one window. The recovery phrase stays hidden until you ask.')
   await app.press('r')
@@ -98,12 +102,22 @@ async function main () {
   await app.press(KEY.escape)
   await sleep(400)
 
+  // --- the command line ---------------------------------------------------
+
+  await app.press(KEY.escape)
+  await sleep(200)
+  await app.press(':')
+  await sleep(600)
+  await shot('06-command', 'Commands have a line of their own, opened with `:` the way vim opens one.')
+  await app.press(KEY.escape)
+  await sleep(300)
+
   // --- finding things -----------------------------------------------------
 
   await app.press(KEY.escape)
   await app.press(' ')
   await sleep(500)
-  await shot('06-whichkey', 'Space, then wait: every chord that starts here, the way which-key does it.')
+  await shot('07-keys', 'Space, then wait: every chord that starts here, and what it does.')
   await app.press(KEY.escape)
   await sleep(300)
 
@@ -111,7 +125,7 @@ async function main () {
   await app.press('f')
   await app.press('f')
   await sleep(600)
-  await shot('07-find', 'Fuzzy-find any conversation.')
+  await shot('08-find', 'Fuzzy-find any conversation.')
   await app.press(KEY.escape)
   await sleep(300)
 
@@ -122,6 +136,18 @@ async function main () {
   await testnet.destroy()
 
   console.log(`\n${shots.length} screenshots -> ${path.relative(root, OUT)}/`)
+}
+
+/** Run a command the way a user does: escape to normal, `:`, type it, enter. */
+async function command (app, line) {
+  await app.press(KEY.escape)
+  await sleep(200)
+  await app.press(':')
+  await sleep(300)
+  await app.press(line)
+  await sleep(200)
+  await app.press('\r')
+  await sleep(300)
 }
 
 async function capture (page, app, name, caption) {

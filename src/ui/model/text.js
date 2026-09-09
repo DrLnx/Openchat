@@ -33,6 +33,37 @@ function cellsOf (code) {
   return 1
 }
 
+/**
+ * A chunk of input, split into what belongs in the line and whether the line
+ * was ended.
+ *
+ * A terminal hands over whatever was in its buffer when it was read: one
+ * character when you type slowly, a whole pasted invite when you paste, and
+ * `ada\r` when you type a name and press enter quickly enough. Ink only sets
+ * `key.return` when the chunk is *exactly* a carriage return, so anything that
+ * arrives with its newline attached used to be inserted verbatim — control
+ * character and all — and the enter was silently swallowed. Pasting a recovery
+ * phrase or an invite is the normal way to use half the fields in this app, so
+ * that is not an edge case.
+ *
+ * Line breaks inside a chunk become spaces rather than sending a dozen
+ * half-messages; a break at the end of one means the line was finished.
+ *
+ * @param {string} input
+ * @returns {{ text: string, submit: boolean }}
+ */
+export function typed (input) {
+  const chunk = String(input ?? '')
+  const submit = /[\r\n]$/.test(chunk)
+
+  const text = chunk
+    .replace(/[\r\n]+/g, ' ')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+
+  return { text: submit ? text.replace(/\s+$/, '') : text, submit }
+}
+
 /** Width of a string in terminal cells. */
 export function width (text) {
   let total = 0

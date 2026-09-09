@@ -78,6 +78,61 @@ export async function waitFor (fn, { timeout = 20000, interval = 100, message = 
   throw new Error(`timed out waiting for ${message}`)
 }
 
+/**
+ * Send an idempotent keystroke until the app shows that it landed.
+ *
+ * ink-testing-library's stdin holds exactly one chunk and keeps no queue: a
+ * write replaces whatever has not been read yet, and a write that lands while
+ * Ink is busy is simply gone. Real terminals do not do this — stdin is a
+ * stream — so a test that loses a keypress is testing the harness rather than
+ * the app.
+ *
+ * Only for keys that can be sent twice with no second effect: escape, or a
+ * mode change. Never for one that advances something.
+ */
+export async function pressUntil (app, key, predicate, { timeout = 20000, interval = 150, message = 'the key to land' } = {}) {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    app.stdin.write(key)
+    await sleep(interval)
+    if (await predicate()) return true
+  }
+  throw new Error(`timed out waiting for ${message}`)
+}
+
+/**
+ * Run a command the way a user does: escape to normal, `:`, type it, enter.
+ *
+ * Commands are not messages any more — the message box only sends messages —
+ * so a test that wants one has to open the command line, which is what this is.
+ * Each step waits for the app to show that the last one landed; see pressUntil
+ * for why typing against the clock is not reliable here.
+ *
+ * @param {object} app       from ink-testing-library's render
+ * @param {string} line      the command, without the colon
+ * @param {(app: object) => string} screen  reads the current frame
+ */
+export async function runCommand (app, line, screen) {
+  await pressUntil(app, ESCAPE, async () => screen(app).includes('NORMAL'), {
+    message: 'normal mode'
+  })
+
+  app.stdin.write(':')
+  await waitFor(async () => screen(app).includes('esc cancel'), { message: 'the command line' })
+
+  app.stdin.write(line)
+  await waitFor(async () => screen(app).includes(line.slice(0, 10)), {
+    message: `"${line.slice(0, 10)}" to be typed`
+  })
+
+  app.stdin.write('\r')
+  await waitFor(async () => !screen(app).includes('esc cancel'), {
+    message: 'the command line to close'
+  })
+}
+
+const ESCAPE = String.fromCharCode(27)
+
 export function sleep (ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }

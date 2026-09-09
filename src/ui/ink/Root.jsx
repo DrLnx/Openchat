@@ -15,7 +15,7 @@ import { App } from './App.jsx'
 import { createTheme } from './theme.js'
 import { read as readSettings } from '../model/settings.js'
 import { Client } from '../../core/client.js'
-import { Identity, saveIdentity, restoreFromMnemonic, loadIdentity, hasIdentity } from '../../core/identity.js'
+import { Identity, saveIdentity, loadIdentity, hasIdentity } from '../../core/identity.js'
 import { readConfig, writeConfig, setCurrentProfile, profileDir, sanitizeProfile } from '../../core/store.js'
 import { createAccount, suggestProfile } from '../../core/accounts.js'
 import { onShutdown } from '../../core/shutdown.js'
@@ -62,19 +62,9 @@ export function Root ({ profile: initialProfile, dir: initialDir, needsOnboardin
     }
   }, [client])
 
-  const onDone = useCallback(async ({ mode, nick, phrase }) => {
+  const onDone = useCallback(async ({ nick }) => {
     try {
       setError(null)
-
-      if (mode === 'restore') {
-        const identity = await restoreFromMnemonic(phrase, { dir, nick: nick || undefined })
-        const config = await readConfig(dir)
-        config.nick = identity.nick
-        config.onboarded = true
-        await writeConfig(config, dir)
-        setPhase('starting')
-        return
-      }
 
       const identity = new Identity({ seed: backend.randomBytes(SEED_BYTES), nick })
       await saveIdentity(identity, dir)
@@ -116,27 +106,20 @@ export function Root ({ profile: initialProfile, dir: initialDir, needsOnboardin
   }, [client, profile])
 
   /**
-   * Make an account from inside the app: generate or restore its key, show the
-   * phrase, and switch into it. The username is only a directory name — the
-   * account is the keypair.
+   * Make an account from inside the app: generate its key, show the phrase, and
+   * switch into it. The username is only a directory name — the account is the
+   * keypair, and every keypair in openchat is generated where it is used.
    */
-  const onCreateAccount = useCallback(async ({ profile: name, nick, mnemonic }) => {
+  const onCreateAccount = useCallback(async ({ profile: name, nick }) => {
     try {
       const target = sanitizeProfile(name || (await suggestProfile(nick || 'account')))
-      const account = await createAccount({ profile: target, nick, mnemonic })
+      const account = await createAccount({ profile: target, nick })
 
       if (client) await client.close().catch(() => {})
       setClient(null)
       setProfile(account.profile)
       setDir(account.dir)
       setError(null)
-
-      // A restored account's phrase is one the user already has; only a freshly
-      // generated one needs writing down.
-      if (mnemonic) {
-        setPhase('starting')
-        return
-      }
 
       setPending({ phrase: account.mnemonic, publicKey: account.publicKey })
       setPhase('onboarding')

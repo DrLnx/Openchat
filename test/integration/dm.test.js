@@ -167,6 +167,50 @@ test('a message written while the other side is offline lands when they return',
   assert.equal(seen.author, alice.identity.publicKeyHex)
 })
 
+test('a conversation opened from a bare public key learns who it is with', async (t) => {
+  // The bug this covers: a DM is opened by pasting a 64-character public key,
+  // so until it is told otherwise it is called `@98642e95` — in the
+  // conversation list, the title bar and the prompt, permanently. Their nick
+  // arrives in the first seconds and answers "who is this", and ignoring it
+  // made a DM that was working perfectly look like one that was not.
+  const testnet = await createTestDht()
+  const alice = await startClient(testnet.bootstrap)
+  const bob = await startClient(testnet.bootstrap)
+
+  t.after(async () => {
+    await alice.close()
+    await bob.close()
+    await testnet.destroy()
+  })
+
+  await bob.setNick('bob')
+
+  const channel = await alice.openDm(bob.identity.publicKeyHex)
+  assert.equal(channel.name, bob.identity.publicKeyHex.slice(0, 8), 'a key is all it has to go on at first')
+
+  await waitFor(async () => channel.name === 'bob', { message: "bob's name to arrive" })
+  assert.equal(
+    alice.conversationList.find((c) => c.id === channel.id).name,
+    'bob',
+    'and the conversation list is named too'
+  )
+
+  // Remembered, so reopening does not go back to a hex string while waiting
+  // for them to come online.
+  await waitFor(async () => alice.config.dms.find((d) => d.key === bob.identity.publicKeyHex)?.announced === 'bob', {
+    message: 'the name to be written to the config'
+  })
+
+  // A name you chose for them is yours, and nothing arriving over the wire
+  // may overwrite it.
+  await alice.addContact(bob.identity.publicKeyHex, 'grace')
+  const named = await alice.openDm(bob.identity.publicKeyHex)
+  assert.equal(named.name, 'bob', 'the open conversation keeps the name it has')
+
+  const fresh = alice.conversations.get(channel.id)
+  assert.ok(fresh, 'and it is still the same conversation')
+})
+
 test('a message reaches someone who has never opened the conversation', async (t) => {
   // The bug this covers: a conversation's topic is derived from *both*
   // identities, so the person being written to cannot be listening on it until

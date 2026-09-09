@@ -13,7 +13,7 @@ import { render } from 'ink-testing-library'
 
 import { App } from '../../src/ui/ink/App.jsx'
 import { Client } from '../../src/core/client.js'
-import { createTestDht, TEST_HOST, waitFor, sleep } from '../helpers.js'
+import { createTestDht, TEST_HOST, waitFor, pressUntil, runCommand, sleep } from '../helpers.js'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -35,6 +35,13 @@ async function type (app, line) {
   await sleep(60)
   app.stdin.write('\r')
   await sleep(60)
+}
+
+const ESC = String.fromCharCode(27)
+
+/** Run a command through the command line, the way a user does. */
+async function command (app, line) {
+  return runCommand(app, line, screen)
 }
 
 /** Close whatever floating window is open. */
@@ -92,7 +99,7 @@ test('the UI renders a live room and paints messages as they arrive', async (t) 
   assert.match(withMessage, /is this thing on\?/, 'the message itself is painted')
 })
 
-test('typing a message sends it; typing a slash command runs it', async (t) => {
+test('the message box sends messages; the command line runs commands', async (t) => {
   const testnet = await createTestDht()
   const alice = await startClient(testnet.bootstrap)
 
@@ -109,11 +116,19 @@ test('typing a message sends it; typing a slash command runs it', async (t) => {
 
   await type(app, 'hello world')
   await waitFor(async () => screen(app).includes('hello world'), { message: 'the sent message' })
-  assert.match(screen(app), /› you\s+hello world/, 'your own message echoes behind a caret')
+  // A caret and your name in the margin, then the rule down the left of the
+  // block, then what you said.
+  assert.match(screen(app), /› you\s+│ hello world/, 'your own message echoes behind a caret')
+
+  // A line that starts with a slash is a line, not a command. Commands have
+  // somewhere of their own to be typed, so the message box never has to guess.
+  await type(app, '/invite')
+  await waitFor(async () => screen(app).includes('/invite'), { message: 'the slash to be sent' })
+  assert.ok(!screen(app).includes('openchat1:'), 'and it did not run anything')
 
   // An invite is a secret and a thing you paste somewhere else, so it opens in
   // a window rather than scrolling past in the conversation.
-  await type(app, '/invite')
+  await command(app, 'invite')
   await waitFor(async () => screen(app).includes('openchat1:'), { message: 'the invite window' })
   assert.match(screen(app), /share it out of band/i, 'the warning is shown with the invite')
   assert.match(screen(app), /c copy/, 'and it can be taken away rather than read off the screen')
@@ -123,10 +138,10 @@ test('typing a message sends it; typing a slash command runs it', async (t) => {
     message: 'the invite to leave the screen with the window'
   })
 
-  await type(app, '/nick ada')
+  await command(app, 'nick ada')
   await waitFor(async () => screen(app).includes('you are now ada'), { message: 'the nick change' })
 
-  await type(app, '/nope')
+  await command(app, 'nope')
   await waitFor(async () => screen(app).includes('unknown command'), { message: 'the error notice' })
   assert.match(screen(app), /✗ unknown command/, 'errors are marked')
 })
@@ -147,18 +162,18 @@ test('the app can do the things that used to need a shell command', async (t) =>
   await waitFor(async () => screen(app).includes('end-to-end encrypted'), { message: 'the app to start' })
 
   // A room is created in here, not from a shell command.
-  await type(app, '/new design-team')
+  await command(app, 'new design-team')
   await waitFor(async () => screen(app).includes('#design-team'), { message: 'the new room' })
-  assert.match(screen(app), /you own it/, 'says the room is yours')
+  assert.match(screen(app), /yours/, 'says the room is yours')
 
-  await type(app, '/invite')
+  await command(app, 'invite')
   await waitFor(async () => screen(app).includes('openchat1:'), { message: 'the invite' })
   await escape(app)
 
   // The recovery phrase has to be reachable without leaving the app, since
   // there is no longer a shell command that shows it. Asking for it is asking
   // to see it, so it arrives already revealed.
-  await type(app, '/backup')
+  await command(app, 'backup')
   await waitFor(async () => screen(app).includes('Recovery phrase'), { message: 'the phrase' })
   const words = alice.identity.mnemonic.split(' ')
   assert.ok(screen(app).includes(words[0]), 'the real phrase is shown')
@@ -167,7 +182,7 @@ test('the app can do the things that used to need a shell command', async (t) =>
 
   // The same window, opened at the other end: your key, whole and unwrapped,
   // which is the only form of it worth having.
-  await type(app, '/whoami')
+  await command(app, 'whoami')
   await waitFor(async () => screen(app).includes(alice.identity.publicKeyHex), {
     message: 'your key'
   })
@@ -177,13 +192,140 @@ test('the app can do the things that used to need a shell command', async (t) =>
   )
   await escape(app)
 
-  await type(app, '/profiles')
-  await waitFor(async () => screen(app).includes('--profile'), {
-    message: 'how to open another account'
+  // A list opens a window rather than being written anywhere: nothing openchat
+  // says for itself goes into the transcript, so anything bigger than a line
+  // has to go somewhere you can read and scroll it.
+  await command(app, 'profiles')
+  await waitFor(async () => screen(app).includes('each one is its own keypair'), {
+    message: 'the accounts window'
   })
+  assert.match(screen(app), /work/, 'with the account you are in listed')
 })
 
-test('typing a slash opens a command menu', async (t) => {
+test('opening a menu moves nothing on the screen', async (t) => {
+  const testnet = await createTestDht()
+  const alice = await startClient(testnet.bootstrap)
+
+  t.after(async () => {
+    await alice.close()
+    await testnet.destroy()
+  })
+
+  await alice.createRoom('busy')
+  const app = render(React.createElement(App, { client: alice }))
+  t.after(() => app.unmount())
+
+  await waitFor(async () => screen(app).includes('#busy'), { message: 'the UI to start' })
+
+  // Enough to fill the pane, so there is something to move.
+  const said = []
+  for (let i = 0; i < 8; i++) {
+    said.push(`line number ${i} of the conversation`)
+    await alice.sendText(said[i])
+  }
+  await waitFor(async () => screen(app).includes(said[7]), { message: 'the transcript' })
+
+  // This is the property the whole layout hangs off. Both windows are laid
+  // *over* the frame rather than wedged into it: they were once painted across
+  // the middle of the transcript, and then given rows of their own with the
+  // conversation redrawn shorter to make room — which covered nothing and still
+  // shunted everything you were reading upward every time you reached for a
+  // key. Nothing you open may move what is already on screen.
+  const before = screen(app).split('\n')
+
+  // Something only that window ever puts on screen — "keys" and "command" both
+  // appear in the statusline and the prompt's own hint text.
+  for (const [keys, opened] of [[[ESC, ' '], 'switch conversation'], [[':'], 'join a room from an invite']]) {
+    for (const key of keys) {
+      app.stdin.write(key)
+      await sleep(150)
+    }
+    await waitFor(async () => screen(app).includes(opened), { message: `the ${opened} window` })
+
+    const after = screen(app).split('\n')
+    assert.equal(after.length, before.length, `${opened} did not change the height of anything`)
+
+    // Every row above the window is untouched, to the character.
+    const covered = after.findIndex((line, i) => line !== before[i])
+    assert.ok(covered > 0, `${opened} left the top of the screen alone`)
+    for (let i = 0; i < covered; i++) {
+      assert.equal(after[i], before[i], `row ${i} is where it was under ${opened}`)
+    }
+
+    // And the prompt and the statusline are exactly where they always are. The
+    // statusline says a different mode, which is the point of it; the row it is
+    // on, and the prompt's own closing border above it, do not move.
+    assert.match(after[after.length - 1], /NORMAL|INSERT|COMMAND/, 'the statusline is still last')
+    assert.equal(after[after.length - 2], before[before.length - 2], 'with the prompt above it')
+
+    app.stdin.write(ESC)
+    await waitFor(async () => !screen(app).includes(opened), { message: `${opened} to close` })
+  }
+})
+
+test('the key menu stands in the corner without taking the conversation with it', async (t) => {
+  const testnet = await createTestDht()
+  const alice = await startClient(testnet.bootstrap)
+
+  t.after(async () => {
+    await alice.close()
+    await testnet.destroy()
+  })
+
+  await alice.createRoom('busy')
+  const app = render(React.createElement(App, { client: alice }))
+  t.after(() => app.unmount())
+
+  await waitFor(async () => screen(app).includes('#busy'), { message: 'the UI to start' })
+
+  const said = []
+  for (let i = 0; i < 8; i++) {
+    said.push(`line ${i} said`)
+    await alice.sendText(said[i])
+  }
+  await waitFor(async () => screen(app).includes(said[7]), { message: 'the transcript' })
+
+  const before = screen(app).split('\n')
+  const spoken = (lines) => lines.filter((line) => /line \d said/.test(line)).length
+
+  app.stdin.write(ESC)
+  await sleep(150)
+  app.stdin.write(' ')
+  await waitFor(async () => screen(app).includes('+find'), { message: 'the key menu' })
+
+  const after = screen(app).split('\n')
+
+  // The menu is in the corner the prompt is in: its closing border is the last
+  // row of the body, and it starts in the right-hand half of the pane.
+  const closing = after.findIndex((line) => line.includes('esc cancel'))
+  assert.ok(closing > 0, 'the menu is open')
+  assert.ok(
+    after[closing + 1].includes('╭'),
+    'and it stands directly on the prompt, which is the row under it'
+  )
+  assert.ok(
+    after[closing].indexOf('╰') > after[closing].length / 2,
+    'the frame is against the right of the screen'
+  )
+
+  // And the rows it covers are the newest messages, which is exactly why it
+  // does not take them: it stands beside the conversation rather than on it.
+  assert.equal(
+    spoken(after),
+    spoken(before),
+    'every line of the conversation is still on screen with the menu open'
+  )
+  assert.match(
+    after[closing],
+    /line 7 said/,
+    'including the newest one, which shares its row with the menu'
+  )
+
+  app.stdin.write(ESC)
+  await waitFor(async () => !screen(app).includes('+find'), { message: 'the menu to close' })
+})
+
+test('the command line lists what matches and runs what you pick', async (t) => {
   const testnet = await createTestDht()
   const alice = await startClient(testnet.bootstrap)
 
@@ -198,26 +340,62 @@ test('typing a slash opens a command menu', async (t) => {
 
   await waitFor(async () => screen(app).includes('#menu'), { message: 'the UI to start' })
 
-  // The menu lists matching commands with their help, and narrows as you type.
-  app.stdin.write('/')
+  await pressUntil(app, ESC, async () => screen(app).includes('NORMAL'), { message: 'normal mode' })
+
+  // Everything, with its help, until you narrow it.
+  app.stdin.write(':')
   await waitFor(async () => screen(app).includes('join a room from an invite string'), {
-    message: 'the command menu'
+    message: 'the command line'
   })
-  assert.match(screen(app), /show this room's invite/, 'every match is listed')
+  assert.match(screen(app), /show this room's invite/, 'every command is listed')
+  assert.match(screen(app), /:dm <key\|name>/, 'with what each one takes')
 
   app.stdin.write('me')
   await waitFor(
     async () => {
       const frame = app.lastFrame() || ''
-      return frame.includes('list the members of this room') && !frame.includes('leave and exit')
+      return frame.includes('list the members of this room') && !frame.includes('join a room from an invite')
     },
-    { message: 'the menu to narrow to /members' }
+    { message: 'the list to narrow to members' }
   )
 
-  // Enter takes the highlighted command rather than sending "/me" as a message.
+  // Enter runs the highlighted command. Nothing is sent to the room.
   app.stdin.write('\r')
-  await waitFor(async () => screen(app).includes('(you)'), { message: '/members to run' })
+  await waitFor(async () => screen(app).includes('(you)'), { message: 'members to run' })
   assert.ok(!screen(app).includes('unknown command'), 'the partial command was never sent')
+  assert.ok(!screen(app).includes('me\n'), 'and never reached the transcript')
+})
+
+test('a command can be looked up by what it does, not just what it is called', async (t) => {
+  const testnet = await createTestDht()
+  const alice = await startClient(testnet.bootstrap)
+
+  t.after(async () => {
+    await alice.close()
+    await testnet.destroy()
+  })
+
+  await alice.createRoom('lookup')
+  const app = render(React.createElement(App, { client: alice }))
+  t.after(() => app.unmount())
+
+  await waitFor(async () => screen(app).includes('#lookup'), { message: 'the UI to start' })
+  await pressUntil(app, ESC, async () => screen(app).includes('NORMAL'), { message: 'normal mode' })
+
+  app.stdin.write(':')
+  await waitFor(async () => screen(app).includes('esc cancel'), { message: 'the command line' })
+
+  // Nothing is called "palette", so the help text is searched instead.
+  app.stdin.write('palette')
+  await waitFor(async () => screen(app).includes('change the palette'), {
+    message: 'the command that does that'
+  })
+  assert.match(screen(app), /:theme/, 'and it is named')
+
+  // A prefix of a real name never falls back to prose: `inv` is the start of
+  // `invite`, and half the help lines contain the word.
+  app.stdin.write(String.fromCharCode(27))
+  await waitFor(async () => !screen(app).includes('esc cancel'), { message: 'it to close' })
 })
 
 test('a sent file renders as an attachment, not as raw metadata', async (t) => {
@@ -239,8 +417,13 @@ test('a sent file renders as an attachment, not as raw metadata', async (t) => {
   const file = path.join(dir, 'agenda.md')
   await writeFile(file, '# agenda\n\n- ship it\n')
 
-  await type(app, `/file ${file}`)
-  await waitFor(async () => screen(app).includes('agenda.md'), { message: 'the attachment line' })
+  await command(app, `file ${file}`)
+  // Waiting for the name alone would be satisfied by the "sending agenda.md…"
+  // notice, which is printed before the message it is about exists. What this
+  // test is here for is the line the attachment itself renders as.
+  await waitFor(async () => /agenda\.md \(\d+B\)/.test(screen(app)), {
+    message: 'the attachment line'
+  })
 
   const frame = screen(app)
   assert.match(frame, /agenda\.md \(\d+B\)/, 'the attachment shows its name and size')
@@ -249,7 +432,7 @@ test('a sent file renders as an attachment, not as raw metadata', async (t) => {
 })
 
 test('joining opens the room at once and waits to be admitted in the background', async (t) => {
-  // The complaint this covers: `/join` used to block the prompt for up to
+  // The complaint this covers: `:join` used to block the prompt for up to
   // thirty seconds while it waited for a member to admit you, which looks
   // exactly like a join that has failed. Opening the room is local and
   // immediate; being admitted is not, and is not something the joiner can
@@ -277,7 +460,7 @@ test('joining opens the room at once and waits to be admitted in the background'
   await waitFor(async () => screen(app).includes('nothing open'), { message: 'the app to start' })
 
   const started = Date.now()
-  await type(app, `/join ${invite}`)
+  await command(app, `join ${invite}`)
 
   await waitFor(async () => screen(app).includes('waiting to be admitted'), {
     message: 'the room to open and say what it is waiting for'
@@ -288,7 +471,7 @@ test('joining opens the room at once and waits to be admitted in the background'
 
   const frame = screen(app)
   assert.match(frame, /#closed-shop/, 'the room is open and named in the title bar')
-  assert.match(frame, /by itself once the room's owner is online/, 'and says who it is waiting for')
+  assert.match(frame, /waiting for a member to admit you/, 'and says who it is waiting for')
 })
 
 test('the UI comes up with no rooms and says what to do', async (t) => {
@@ -309,7 +492,8 @@ test('the UI comes up with no rooms and says what to do', async (t) => {
   assert.match(frame, /end-to-end encrypted/, 'the empty pane still introduces itself')
   assert.match(frame, /nothing open/, 'the title bar says there is nothing open')
   assert.match(frame, /message someone/, 'tells you how to reach someone')
-  assert.match(frame, /no rooms yet/, 'and so does the empty conversation list')
+  assert.match(frame, /NOTHING YET/, 'and so does the empty conversation list')
+  assert.match(frame, /␣ r n/, 'which says what to press rather than sitting there empty')
 
   // Your key is what people reach you on, so the pane says you have one and
   // where it lives — but it does not print it. A 64-character key on the
@@ -318,7 +502,18 @@ test('the UI comes up with no rooms and says what to do', async (t) => {
   // something that has been wrapped across a pane.
   assert.ok(frame.includes(alice.identity.publicKeyHex.slice(0, 16)), 'enough of the key to recognise it')
   assert.ok(!frame.includes(alice.identity.publicKeyHex), 'but not the whole thing, unasked')
-  assert.match(frame, /␣ k for all of it/, 'and says which key opens the window that has it')
+  assert.match(
+    frame,
+    /␣ k your keys, and the phrase behind them/,
+    'and says which key opens the window that has it, in the card that holds it'
+  )
+
+  // The three things to do first, in the order they have to be done. An empty
+  // app with nothing to type into it is the failure this pane exists to
+  // prevent, so it says what to press rather than what openchat is.
+  assert.match(frame, /make a room/, 'the first thing to do')
+  assert.match(frame, /the invite is the room key/, 'what to do with it')
+  assert.match(frame, /you both have to be online/, 'and the catch, said once, up front')
 })
 
 test('leaving a room tells the room, and takes it off this machine', async (t) => {
@@ -341,7 +536,7 @@ test('leaving a room tells the room, and takes it off this machine', async (t) =
   t.after(() => app.unmount())
   await waitFor(async () => screen(app).includes('#design'), { message: 'the room to open' })
 
-  await type(app, '/leave')
+  await command(app, 'leave')
   await waitFor(async () => screen(app).includes('left #design'), { message: 'the room to be left' })
 
   assert.equal(alice.conversations.size, 0, 'it is gone from her machine')
@@ -350,7 +545,7 @@ test('leaving a room tells the room, and takes it off this machine', async (t) =
     false,
     'and will not come back on the next run'
   )
-  assert.match(screen(app), /carries on without you/, 'and says what leaving does not do')
+  assert.match(screen(app), /nobody new can join/, 'and says what leaving a room you own costs')
 
   // Bob is still in it, and sees that she went.
   assert.ok(bob.conversations.has(room.keyHex), "bob's room is untouched")
@@ -386,7 +581,7 @@ test('deleting a conversation clears its history and its index here', async (t) 
   t.after(() => app.unmount())
   await waitFor(async () => screen(app).includes('#ops'), { message: 'the room to open' })
 
-  await type(app, '/delete')
+  await command(app, 'delete')
   await waitFor(async () => screen(app).includes('deleted #ops'), { message: 'the room to be deleted' })
 
   assert.equal(alice.conversations.size, 0)

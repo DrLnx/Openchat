@@ -108,6 +108,49 @@ const PALETTES = {
     blue: '#31748f',
     magenta: '#c4a7e7'
   },
+  nord: {
+    on: '#2e3440',
+    fg: '#e5e9f0',
+    dim: '#7b88a1',
+    subtle: '#4c566a',
+    accent: '#88c0d0',
+    accent2: '#b48ead',
+    border: '#434c5e',
+    borderFocus: '#88c0d0',
+    float: '#3b4252',
+    selection: '#434c5e',
+    red: '#bf616a',
+    orange: '#d08770',
+    yellow: '#ebcb8b',
+    green: '#a3be8c',
+    teal: '#8fbcbb',
+    cyan: '#88c0d0',
+    blue: '#81a1c1',
+    magenta: '#b48ead'
+  },
+  // The one light palette. A terminal on a white background renders every dark
+  // theme above as grey text on grey, and "use a dark terminal" is not an
+  // answer — plenty of people work in daylight.
+  'catppuccin-latte': {
+    on: '#eff1f5',
+    fg: '#4c4f69',
+    dim: '#6c6f85',
+    subtle: '#9ca0b0',
+    accent: '#1e66f5',
+    accent2: '#8839ef',
+    border: '#bcc0cc',
+    borderFocus: '#1e66f5',
+    float: '#e6e9ef',
+    selection: '#dce0e8',
+    red: '#d20f39',
+    orange: '#fe640b',
+    yellow: '#df8e1d',
+    green: '#40a02b',
+    teal: '#179299',
+    cyan: '#04a5e5',
+    blue: '#1e66f5',
+    magenta: '#8839ef'
+  },
   // For 16-colour terminals, tmux over ssh, and anyone who wants the terminal's
   // own colours honoured rather than overridden.
   monochrome: {
@@ -164,6 +207,7 @@ const GLYPHS = {
     closed: '⊘',
     unread: '●',
     search: '⌕',
+    command: '▸',
     left: '◀',
     right: '▶',
     bar: '│',
@@ -200,6 +244,7 @@ const GLYPHS = {
     closed: '',
     unread: '●',
     search: '',
+    command: '▸',
     left: '',
     right: '',
     bar: '│',

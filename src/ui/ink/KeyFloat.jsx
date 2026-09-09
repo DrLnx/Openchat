@@ -1,6 +1,6 @@
 // The window every key, invite and recovery phrase is shown in.
 //
-// None of this used to have a window. `/whoami`, `/invite` and `/backup` all
+// None of this used to have a window. `:whoami`, `:invite` and `:backup` all
 // printed into the conversation, and that was wrong in three separate ways.
 //
 // It was wrong for reading: a 64-character key wrapped across the message
@@ -49,12 +49,12 @@ const PLAIN_LABEL = 15
  * @param {(what: string) => void} [props.onCopy]  told what was copied
  */
 export function KeyFloat ({
-  theme, terminal, title, icon, subtitle, fields = [], onCancel, onCopy,
+  theme, screen, title, icon, subtitle, fields = [], onCancel, onCopy,
   revealed: initiallyRevealed = false, width = 78, backdrop
 }) {
   const [revealed, setRevealed] = useState(initiallyRevealed)
   // Opening this window already revealed means you came here for the secret —
-  // `/backup` and nothing else — so that is the field the cursor starts on and
+  // `:backup` and nothing else — so that is the field the cursor starts on and
   // the field the window scrolls to.
   const [focus, setFocus] = useState(
     () => (initiallyRevealed ? Math.max(0, fields.findIndex((field) => field.secret)) : 0)
@@ -78,8 +78,8 @@ export function KeyFloat ({
   }, [fields, theme, revealed, at, width])
 
   const layout = useMemo(
-    () => floatLayout(terminal, { items: rows.length, maxRows: 26, width }),
-    [terminal, rows.length, width]
+    () => floatLayout(screen, { items: rows.length, maxRows: 26, width }),
+    [screen, rows.length, width]
   )
 
   const scroll = useCallback((step) => {

@@ -10,6 +10,9 @@
 // Chat is the exception LazyVim does not have to solve: you are here to type
 // prose, not to edit a file, so INSERT is the mode you start in and every
 // binding that matters is also reachable from it with a control chord.
+//
+// `:` opens the command line, the same as it does in vim — which is why the
+// message box does not have to reserve a prefix character of its own.
 
 export const LEADER = '<space>'
 
@@ -36,39 +39,39 @@ export const BINDINGS = [
   // --- finders ------------------------------------------------------------
   { keys: '<leader><leader>', mode: 'normal', desc: 'Find conversation', action: 'picker:conversations' },
   { keys: '<leader>ff', mode: 'normal', desc: 'Find conversation', action: 'picker:conversations' },
-  { keys: '<leader>fd', mode: 'normal', desc: 'Find someone to DM', action: 'picker:people' },
+  { keys: '<leader>fd', mode: 'normal', desc: 'Find a person', action: 'picker:people' },
   { keys: '<leader>fr', mode: 'normal', desc: 'Find room', action: 'picker:rooms' },
-  { keys: '<leader>fm', mode: 'normal', desc: 'Find member of this room', action: 'picker:members' },
-  { keys: '<leader>fc', mode: 'normal', desc: 'Command palette', action: 'picker:commands' },
+  { keys: '<leader>fm', mode: 'normal', desc: 'Find a member', action: 'picker:members' },
+  { keys: '<leader>fc', mode: 'normal', desc: 'Commands', action: 'cmdline' },
   { keys: '<leader>fk', mode: 'normal', desc: 'Keymaps', action: 'picker:keymaps' },
   { keys: '<leader>fa', mode: 'normal', desc: 'Accounts', action: 'picker:accounts' },
-  { keys: '<leader>fs', mode: 'normal', desc: 'Search this conversation', action: 'picker:messages' },
+  { keys: '<leader>fs', mode: 'normal', desc: 'Search messages', action: 'picker:messages' },
   { keys: '<leader>,', mode: 'normal', desc: 'Switch conversation', action: 'picker:conversations' },
-  { keys: '/', mode: 'normal', desc: 'Search this conversation', action: 'picker:messages' },
-  { keys: ':', mode: 'normal', desc: 'Slash command', action: 'mode:command' },
+  { keys: '/', mode: 'normal', desc: 'Search messages', action: 'picker:messages' },
+  { keys: ':', mode: 'normal', desc: 'Command line', action: 'cmdline' },
 
   // --- floats -------------------------------------------------------------
   { keys: '<leader>s', mode: 'normal', desc: 'Settings', action: 'float:settings' },
   { keys: '<leader>a', mode: 'normal', desc: 'Accounts', action: 'float:accounts' },
   { keys: '<leader>?', mode: 'normal', desc: 'Help', action: 'float:help' },
   { keys: '?', mode: 'normal', desc: 'Help', action: 'float:help' },
-  { keys: '<leader>k', mode: 'normal', desc: 'Your keys and identity', action: 'float:identity' },
+  { keys: '<leader>k', mode: 'normal', desc: 'Your keys', action: 'float:identity' },
 
   // --- rooms and people ---------------------------------------------------
   { keys: '<leader>rn', mode: 'normal', desc: 'New room', action: 'prompt:new' },
   { keys: '<leader>rj', mode: 'normal', desc: 'Join with an invite', action: 'prompt:join' },
-  { keys: '<leader>ri', mode: 'normal', desc: 'Invite to this room', action: 'cmd:invite' },
+  { keys: '<leader>ri', mode: 'normal', desc: 'Invite someone', action: 'cmd:invite' },
   { keys: '<leader>rm', mode: 'normal', desc: 'List members', action: 'cmd:members' },
-  { keys: '<leader>y', mode: 'normal', desc: 'Show your public key', action: 'cmd:whoami' },
+  { keys: '<leader>y', mode: 'normal', desc: 'Your public key', action: 'cmd:whoami' },
 
   // --- navigation ---------------------------------------------------------
   { keys: ']b', mode: 'normal', desc: 'Next conversation', action: 'nav:next' },
   { keys: '[b', mode: 'normal', desc: 'Previous conversation', action: 'nav:prev' },
   { keys: 'L', mode: 'normal', desc: 'Next conversation', action: 'nav:next' },
   { keys: 'H', mode: 'normal', desc: 'Previous conversation', action: 'nav:prev' },
-  { keys: 'gd', mode: 'normal', desc: 'Go to the newest unread', action: 'nav:unread' },
-  { keys: '<leader>e', mode: 'normal', desc: 'Move around the conversation list', action: 'focus:sidebar' },
-  { keys: '<C-e>', mode: 'both', desc: 'Move around the conversation list', action: 'focus:sidebar' },
+  { keys: 'gd', mode: 'normal', desc: 'Newest unread', action: 'nav:unread' },
+  { keys: '<leader>e', mode: 'normal', desc: 'Conversation list', action: 'focus:sidebar' },
+  { keys: '<C-e>', mode: 'both', desc: 'Conversation list', action: 'focus:sidebar' },
 
   // --- reading back -------------------------------------------------------
   // The transcript lives in a pane rather than in the terminal's scrollback, so
@@ -82,10 +85,10 @@ export const BINDINGS = [
   { keys: 'G', mode: 'normal', desc: 'Jump to the newest', action: 'scroll:end' },
 
   // --- toggles ------------------------------------------------------------
-  { keys: '<leader>ut', mode: 'normal', desc: 'Toggle timestamps', action: 'toggle:timestamps' },
-  { keys: '<leader>uc', mode: 'normal', desc: 'Toggle compact lines', action: 'toggle:compact' },
-  { keys: '<leader>um', mode: 'normal', desc: 'Toggle mouse capture', action: 'toggle:mouse' },
-  { keys: '<leader>ue', mode: 'normal', desc: 'Toggle the conversation list', action: 'toggle:sidebar' },
+  { keys: '<leader>ut', mode: 'normal', desc: 'Timestamps', action: 'toggle:timestamps' },
+  { keys: '<leader>uc', mode: 'normal', desc: 'Compact lines', action: 'toggle:compact' },
+  { keys: '<leader>um', mode: 'normal', desc: 'Mouse capture', action: 'toggle:mouse' },
+  { keys: '<leader>ue', mode: 'normal', desc: 'Conversation list', action: 'toggle:sidebar' },
 
   // --- modes and exit -----------------------------------------------------
   { keys: 'i', mode: 'normal', desc: 'Write a message', action: 'mode:insert' },
@@ -99,7 +102,7 @@ export const BINDINGS = [
   // you stop using.
   { keys: '<esc>', mode: 'insert', desc: 'Normal mode', action: 'mode:normal' },
   { keys: '<C-p>', mode: 'both', desc: 'Find conversation', action: 'picker:conversations' },
-  { keys: '<C-k>', mode: 'both', desc: 'Command palette', action: 'picker:commands' },
+  { keys: '<C-k>', mode: 'both', desc: 'Command line', action: 'cmdline' },
   { keys: '<C-g>', mode: 'both', desc: 'Settings', action: 'float:settings' },
   { keys: '<C-o>', mode: 'both', desc: 'Accounts', action: 'float:accounts' },
   { keys: '<S-tab>', mode: 'both', desc: 'Next conversation', action: 'nav:next' }

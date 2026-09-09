@@ -1,9 +1,11 @@
 // Tier 1 — portable crypto backend: WebCrypto AES-256-GCM + @noble Ed25519.
 //
-// This is what the browser harness runs. It also runs under `node:test`, where
-// test/unit/vectors.test.js checks that anything it seals, the sodium-backed
-// CLI backend opens, and vice versa. That is what keeps the browser demo an
-// honest model of the real client rather than a lookalike.
+// A second, independent implementation of the same interface as the sodium
+// backend the app actually runs on, kept because a wire format with one
+// implementation is a wire format nobody has checked. test/unit/vectors.test.js
+// makes each backend open what the other sealed, so a change to the envelope
+// that is wrong in the same direction in both places still has to get past a
+// frozen vector. Node has WebCrypto built in, so this costs nothing to run.
 
 import b4a from 'b4a'
 import * as ed from '@noble/ed25519'

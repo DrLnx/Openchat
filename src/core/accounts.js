@@ -17,7 +17,8 @@ import {
   listProfiles, profileDir, currentProfile, setCurrentProfile, sanitizeProfile,
   profileExists, readConfig, writeConfig, DEFAULT_PROFILE
 } from './store.js'
-import { Identity, identityPath, hasIdentity, saveIdentity, restoreFromMnemonic } from './identity.js'
+import { Identity, identityPath, hasIdentity, saveIdentity } from './identity.js'
+import { COMMANDS } from '../ui/model/commands.js'
 import { SEED_BYTES } from '../protocol/constants.js'
 import backend from './crypto-node.js'
 
@@ -64,19 +65,18 @@ export async function describeAccount (profile, current = null) {
 }
 
 /**
- * Create an account, or restore one from its recovery phrase.
+ * Create an account: a fresh keypair in a profile directory of its own.
  *
- * Restoring is how you have the *same* identity on a second machine: the
- * mnemonic is the seed, the seed is the keypair, and the keypair is who you
- * are. There is nothing else to move across.
+ * There is no way to bring an identity in from somewhere else. A keypair is
+ * generated where it is used and never travels, so an account made here has
+ * never existed anywhere before this call.
  *
  * @param {object} options
  * @param {string} options.profile
  * @param {string} [options.nick]
- * @param {string} [options.mnemonic]  restore instead of generating
  * @returns {Promise<{ profile: string, dir: string, publicKey: string, mnemonic: string }>}
  */
-export async function createAccount ({ profile, nick, mnemonic }) {
+export async function createAccount ({ profile, nick }) {
   const name = sanitizeProfile(profile)
   const dir = profileDir(name)
 
@@ -84,11 +84,8 @@ export async function createAccount ({ profile, nick, mnemonic }) {
     throw new Error(`"${name}" already has an identity — switch to it instead of overwriting it`)
   }
 
-  const identity = mnemonic
-    ? await restoreFromMnemonic(mnemonic, { dir, nick: nick || undefined })
-    : new Identity({ seed: backend.randomBytes(SEED_BYTES), nick })
-
-  if (!mnemonic) await saveIdentity(identity, dir)
+  const identity = new Identity({ seed: backend.randomBytes(SEED_BYTES), nick })
+  await saveIdentity(identity, dir)
 
   const config = await readConfig(dir)
   config.nick = identity.nick
@@ -102,6 +99,37 @@ export async function createAccount ({ profile, nick, mnemonic }) {
     publicKey: identity.publicKeyHex,
     mnemonic: identity.mnemonic
   }
+}
+
+/**
+ * The account named by a bare argument to `openchat`, if that is what it is.
+ *
+ * `openchat work` opens the account called work. `openchat whoami` is somebody
+ * reaching for a subcommand that has never existed, because that answer lives
+ * behind `:whoami` inside the app. The two are the same shape on a command
+ * line, so something has to decide between them, and it may as well be one
+ * function with a test rather than a condition buried in an entry point.
+ *
+ * The rule, in order: nothing typed means the account you used last; more than
+ * one word cannot be an account name; an account that already exists always
+ * wins, whatever it is called; and of what is left, anything named after a
+ * slash command is taken as somebody looking for that command. Everything else
+ * is a new account, which is the whole point of being able to name one.
+ *
+ * @param {string[]} args  the non-flag arguments, in order
+ * @returns {Promise<string|null>} the account name, '' for none, null when the
+ *          argument is not an account name at all
+ */
+export async function resolveAccountArg (args = []) {
+  if (args.length === 0) return ''
+  if (args.length > 1) return null
+
+  const [name] = args
+  if (typeof name !== 'string' || name === '' || name.startsWith('-')) return null
+  if (await profileExists(sanitizeProfile(name))) return name
+  if (COMMANDS.some((command) => command.name === name.toLowerCase())) return null
+
+  return name
 }
 
 /** Remember which account to open next time, so `openchat` alone resumes it. */
